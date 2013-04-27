@@ -53,13 +53,13 @@ T accumulate2d(iter first, iter last, T init)
     return init;
 }
 
-// appends b at the end of a, that is a = a@b
+// appends the contents of b at the end of a, that is a = a@b
 template<class T>
 void append(T& a, const T& b) {
     a.insert(a.end(), b.begin(), b.end());
 }
 
-//erase the intersection of sorted ranges [from1,to1) and [from2,to2) from c,
+//erase the intersection of sorted ranges [from1,to1) and [from2,to2) from the first range,
 //leaving the difference
 template<typename Erase, typename It1, typename It2, typename Comp>
 void erase_set_intersection(Erase erase, It1 from1, It1 to1,
@@ -81,7 +81,7 @@ void erase_set_intersection(Erase erase, It1 from1, It1 to1,
         }
 }
 
-//erase the difference of sorted ranges [from1,to1) and [from2,to2) from c,
+//erase the difference of sorted ranges [from1,to1) and [from2,to2) from the first range,
 //leaving the intersection
 template<typename Erase, typename It1, typename It2, typename Comp>
 void erase_set_difference(Erase erase, It1 from1, It1 to1,
