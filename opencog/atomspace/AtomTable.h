@@ -26,38 +26,47 @@
 #define _OPENCOG_ATOMTABLE_H
 
 #include <iostream>
+#include <set>
 #include <vector>
-#include <unordered_set>
 
-#include <boost/signal.hpp>
+#include <boost/signals2.hpp>
 
-#include <opencog/atomspace/TLB.h>
-#include <opencog/atomspace/ClassServer.h>
-#include <opencog/atomspace/CompositeTruthValue.h>
-#include <opencog/atomspace/TruthValue.h>
 #include <opencog/atomspace/AttentionValue.h>
+#include <opencog/atomspace/ClassServer.h>
 #include <opencog/atomspace/FixedIntegerIndex.h>
 #include <opencog/atomspace/ImportanceIndex.h>
 #include <opencog/atomspace/IncomingIndex.h>
-#include <opencog/atomspace/Intersect.h>
 #include <opencog/atomspace/Link.h>
 #include <opencog/atomspace/LinkIndex.h>
 #include <opencog/atomspace/Node.h>
 #include <opencog/atomspace/NodeIndex.h>
 #include <opencog/atomspace/PredicateEvaluator.h>
 #include <opencog/atomspace/PredicateIndex.h>
+#include <opencog/atomspace/TruthValue.h>
 #include <opencog/atomspace/TypeIndex.h>
 #include <opencog/atomspace/TargetTypeIndex.h>
-#include <opencog/atomspace/types.h>
 #include <opencog/util/Logger.h>
 #include <opencog/util/RandGen.h>
 #include <opencog/util/exceptions.h>
-#include <opencog/util/platform.h>
+
+class AtomTableUTest;
 
 namespace opencog
 {
+/** \addtogroup grp_atomspace
+ *  @{
+ */
 
-class SavingLoading;
+typedef std::set<AtomPtr> AtomPtrSet;
+
+typedef boost::signals2::signal<void (const Handle&)> AtomSignal;
+typedef boost::signals2::signal<void (const AtomPtr&)> AtomPtrSignal;
+typedef boost::signals2::signal<void (const Handle&,
+                                      const AttentionValuePtr&,
+                                      const AttentionValuePtr&)> AVCHSigl;
+typedef boost::signals2::signal<void (const Handle&, 
+                                      const TruthValuePtr&,
+                                      const TruthValuePtr&)> TVCHSigl;
 
 /**
  * This class provides mechanisms to store atoms and keep indices for
@@ -75,70 +84,57 @@ class AtomTable
 
 private:
 
-    int size;
+    // Single, global mutex for locking the indexes.
+    // Its recursive because we need to lock twice during atom insertion
+    // and removal: we need to keep the indexes stable while we search
+    // them during add/remove.
+    static std::recursive_mutex _mtx;
 
-    /**
-     * Indicates whether DynamicStatisticsAgent should be used
-     * for atoms inserted in this table or not.
-     */
-    bool useDSA;
+    size_t size;
 
-    /**
-     * Indexes for quick retreival of certain kinds of atoms.
-     */
+    // Holds all atoms in the table.  Provides lookup between numeric
+    // handle uuid and the actual atom pointer (since they are stored
+    // together).  To some degree, this info is duplicated in the Node
+    // and LinkIndex below; we have this here for convenience.
+    std::set<Handle, handle_less> _atom_set;
+
+    //!@{
+    //! Index for quick retreival of certain kinds of atoms.
     TypeIndex typeIndex;
     NodeIndex nodeIndex;
     LinkIndex linkIndex;
+#if TABLE_INCOMING_INDEX
     IncomingIndex incomingIndex;
+#endif
     ImportanceIndex importanceIndex;
     TargetTypeIndex targetTypeIndex;
     PredicateIndex predicateIndex;
-
+	//!@}
+	
     /**
-     * signal connection used to keep track of atom type addition in the
-     * ClassServer 
+     * signal connection used to find out about atom type additions in the
+     * ClassServer
      */
-    boost::signals::connection addedTypeConnection; 
+    boost::signals2::connection addedTypeConnection;
 
-    /**
-     * Handler of the 'type added' signal from ClassServer
-     */
+    /** Handler of the 'type added' signal from ClassServer */
     void typeAdded(Type);
 
-    static bool decayed(Handle h);
+    /** Provided signals */
+    AtomSignal _addAtomSignal;
+    AtomPtrSignal _removeAtomSignal;
 
-    // Warning, this should only be called by decayShortTermImportance
-    void clearIndexesAndRemoveAtoms(const UnorderedHandleSet&);
+    /** Signal emitted when the TV changes. */
+    TVCHSigl _TVChangedSignal;
 
-    /**
-     * Extracts atoms from the table. Table will not contain the
-     * extracted atoms anymore, but they will not be deleted.
-     * Instead, they are returned by this method.
-     *
-     * Note: The caller is responsible for releasing the memory of
-     * both the returned list and the refered Atoms inside it.
-     *
-     * @param The atom to be extracted.
-     * @param Recursive-removal flag; if set, the links in the
-     *        incoming set will also be extracted.
-     * @return A list with the Handles of all extracted Atoms.
-     */
-    UnorderedHandleSet extract(Handle, bool recursive = false);
-
-    /**
-     * Removes the previously extracted Handles (using the extract
-     * method) from this table.
-     * @param The list of the Handles previously extracted.
-     *
-     * NOTE: This method also frees the memory of the Atom objects!
-     */
-    void removeExtractedHandles(const UnorderedHandleSet&);
+    /** Signal emitted when the AV changes. */
+    AVCHSigl _AVChangedSignal;
 
     // JUST FOR TESTS:
     bool isCleared() const;
 
     /**
-     * Overrides and declares copy constructor and equals operator as private 
+     * Overrides and declares copy constructor and equals operator as private
      * for avoiding large object copying by mistake.
      */
     AtomTable& operator=(const AtomTable&);
@@ -149,7 +145,7 @@ public:
     /**
      * Constructor and destructor for this class.
      */
-    AtomTable(bool dsa = true);
+    AtomTable();
     ~AtomTable();
 
     /**
@@ -177,7 +173,9 @@ public:
     /**
      * Return the number of atoms contained in a table.
      */
-    int getSize() const;
+    size_t getSize() const;
+    size_t getNumNodes() const;
+    size_t getNumLinks() const;
 
     /**
      * Adds a new predicate index to this atom table given the Handle of
@@ -190,12 +188,13 @@ public:
      *      - the given Handle is not in the AtomTable
      *      - there is already an index for this predicate id/Handle
      *      - the predicate index table is full.
-     * NOTE: Does not apply the new predicate index to the atoms
+     * \note Does not apply the new predicate index to the atoms
      * inserted previously in the AtomTable.
      */
-    void addPredicateIndex(Handle h, PredicateEvaluator *pe)
+    void addPredicateIndex(Handle& h, PredicateEvaluator *pe)
     {
-        predicateIndex.addPredicateIndex(h,pe);
+        std::lock_guard<std::recursive_mutex> lck(_mtx);
+        predicateIndex.addPredicateIndex(h, pe);
     }
 
     /**
@@ -203,8 +202,9 @@ public:
      * GroundedPredicateNode Handle, if it is being used as a
      * lookup index. Otherwise, returns NULL.
      */
-    PredicateEvaluator* getPredicateEvaluator(Handle h) const
+    PredicateEvaluator* getPredicateEvaluator(Handle& h) const
     {
+        std::lock_guard<std::recursive_mutex> lck(_mtx);
         return predicateIndex.getPredicateEvaluator(h);
     }
 
@@ -212,33 +212,27 @@ public:
      * Returns a list of handles that matches the GroundedPredicateNode
      * with the given name (id).
      * @param the id of the predicate node.
-     * @param VersionHandle for filtering the resulting atoms by
-     *        context. NULL_VERSION_HANDLE indicates no filtering
      */
     template <typename OutputIterator> OutputIterator
     getHandlesByGPN(OutputIterator result,
-                    const std::string& gpnNodeName,
-                    VersionHandle vh = NULL_VERSION_HANDLE) const
+                    const std::string& gpnNodeName) const
     {
-        Handle gpnHandle = getHandle(gpnNodeName, GROUNDED_PREDICATE_NODE);
-        return getHandlesByGPN(result, gpnHandle, vh);
+        Handle gpnHandle(getHandle(GROUNDED_PREDICATE_NODE, gpnNodeName));
+        return getHandlesByGPN(result, gpnHandle);
     }
 
     /**
      * Returns a list of handles that matches the GroundedPredicateNode
      * with the given Handle.
      * @param the Handle of the predicate node.
-     * @param VersionHandle for filtering the resulting atoms by
-     *       context. NULL_VERSION_HANDLE indicates no filtering
      **/
     template <typename OutputIterator> OutputIterator
     getHandlesByGPN(OutputIterator result,
-                    Handle h,
-                    VersionHandle vh = NULL_VERSION_HANDLE) const
+                    Handle& h) const
     {
+        std::lock_guard<std::recursive_mutex> lck(_mtx);
         const UnorderedHandleSet& hs = predicateIndex.findHandlesByGPN(h);
-        return std::copy_if(hs.begin(), hs.end(), result,
-                 [&](Handle h)->bool{ return containsVersionedTV(h, vh); });
+        return std::copy(hs.begin(), hs.end(), result);
     }
 
     /**
@@ -250,35 +244,27 @@ public:
      * @param The type of the desired atom.
      * @return The handle of the desired atom if found.
      */
-    Handle getHandle(const std::string&, Type) const;
-    Handle getHandle(const Node*) const;
+    Handle getHandle(Type, const std::string&) const;
+    Handle getHandle(NodePtr) const;
 
     Handle getHandle(Type, const HandleSeq&) const;
-    Handle getHandle(const Link*) const;
-    Handle getHandle(const Atom*) const;
+    Handle getHandle(LinkPtr) const;
+    Handle getHandle(AtomPtr) const;
+    Handle getHandle(Handle&) const;
 
 protected:
     /* Some basic predicates */
     static bool isDefined(Handle h) { return h != Handle::UNDEFINED; }
-    bool isType(Handle h, Type t, bool subclass) const
+    bool isType(Handle& h, Type t, bool subclass) const
     {
-        Type at = getAtom(h)->getType();
+        Type at = h->getType();
         if (not subclass) return t == at;
         return classserver().isA(at, t);
     }
-    bool containsVersionedTV(Handle h, VersionHandle vh) const
+    bool hasNullName(Handle& h) const
     {
-        if (isNullVersionHandle(vh)) return true;
-        const TruthValue& tv = getAtom(h)->getTruthValue();
-        return (not tv.isNullTv())
-               and (tv.getType() == COMPOSITE_TRUTH_VALUE)
-               and (not (((const CompositeTruthValue&) tv).getVersionedTV(vh).isNullTv()));
-    }
-    bool hasNullName(Handle h) const
-    {
-        Atom* a = getAtom(h);
-        if (dynamic_cast<Link*>(a)) return true;
-        if (dynamic_cast<Node*>(a)->getName().c_str()[0] == 0) return true;
+        if (LinkCast(h)) return true;
+        if (NodeCast(h)->getName().c_str()[0] == 0) return true;
         return false;
     }
 
@@ -295,24 +281,11 @@ public:
                        Type type,
                        bool subclass = false) const
     {
+        std::lock_guard<std::recursive_mutex> lck(_mtx);
         return std::copy_if(typeIndex.begin(type, subclass),
                             typeIndex.end(),
                             result,
                             isDefined);
-    }
-
-    template <typename OutputIterator> OutputIterator
-    getHandlesByTypeVH(OutputIterator result,
-                       Type type,
-                       bool subclass,
-                       VersionHandle vh) const
-    {
-        return std::copy_if(typeIndex.begin(type, subclass),
-                            typeIndex.end(),
-                            result,
-             [&](Handle h)->bool{
-                  return isDefined(h) and containsVersionedTV(h, vh);
-             });
     }
 
     /** Calls function 'func' on all atoms */
@@ -321,25 +294,11 @@ public:
                         Type type,
                         bool subclass = false) const
     {
+        std::lock_guard<std::recursive_mutex> lck(_mtx);
         std::for_each(typeIndex.begin(type, subclass),
                       typeIndex.end(),
-             [&](Handle h)->void { 
+             [&](Handle h)->void {
                   if (not isDefined(h)) return;
-                  (func)(h);
-             });
-    }
-
-    template <typename Function> void
-    foreachHandleByTypeVH(Function func,
-                        Type type,
-                        bool subclass,
-                        VersionHandle vh) const
-    {
-        std::for_each(typeIndex.begin(type, subclass),
-                      typeIndex.end(),
-             [&](Handle h)->void { 
-                  if (not isDefined(h)) return;
-                  if (not containsVersionedTV(h, vh)) return;
                   (func)(h);
              });
     }
@@ -348,28 +307,25 @@ public:
      * Returns all atoms satisfying the predicate
      */
     template <typename OutputIterator> OutputIterator
-    getHandlesByTypePredVH(OutputIterator result,
-                           Type type,
-                           bool subclass,
-                           AtomPredicate* pred,
-                           VersionHandle vh = NULL_VERSION_HANDLE) const
+    getHandlesByTypePred(OutputIterator result,
+                         Type type,
+                         bool subclass,
+                         AtomPredicate* pred) const
     {
+        std::lock_guard<std::recursive_mutex> lck(_mtx);
         return std::copy_if(typeIndex.begin(type, subclass),
                             typeIndex.end(),
                             result,
-             [&](Handle h)->bool { 
-                  return isDefined(h)
-                      and (*pred)(*getAtom(h))
-                      and containsVersionedTV(h, vh);
+             [&](Handle h)->bool {
+                  return isDefined(h) and (*pred)(h);
              });
     }
 
     template <typename OutputIterator> OutputIterator
-    getHandlesByPredVH(OutputIterator result,
-                       AtomPredicate* pred,
-                       VersionHandle vh = NULL_VERSION_HANDLE) const
+    getHandlesByPred(OutputIterator result,
+                     AtomPredicate* pred) const
     {
-        return getHandlesByTypePredVH(result, ATOM, true, pred, vh);
+        return getHandlesByTypePred(result, ATOM, true, pred);
     }
 
     /**
@@ -384,40 +340,56 @@ public:
      *         (subclasses optionally).
      */
     template <typename OutputIterator> OutputIterator
-    getHandlesByTargetTypeVH(OutputIterator result,
+    getHandlesByTargetType(OutputIterator result,
                              Type type,
                              Type targetType,
                              bool subclass,
-                             bool targetSubclass,
-                             VersionHandle vh = NULL_VERSION_HANDLE,
-                             VersionHandle targetVh = NULL_VERSION_HANDLE) const
+                             bool targetSubclass) const
     {
+        std::lock_guard<std::recursive_mutex> lck(_mtx);
         return std::copy_if(targetTypeIndex.begin(targetType, targetSubclass),
                             targetTypeIndex.end(),
                             result,
              [&](Handle h)->bool{
-                 return isDefined(h)
-                    and isType(h, type, subclass)
-                    and containsVersionedTV(h, vh)
-                    and containsVersionedTV(h, targetVh);
+                 return isDefined(h) and isType(h, type, subclass);
              });
     }
 
     /**
      * Return the incoming set associated with handle h.
+     * Note that this returns a copy of the incoming set,
+     * thus making it thread-safe against concurrent additions
+     * or deletions by other threads.
+     *
+     * Return an std::vector, simply because its faster to put the
+     * elements into an std::vector than anything else. We don't need
+     * good delete or random-access performance for this.
      */
-    const UnorderedHandleSet& getIncomingSet(Handle h) const
-        { return incomingIndex.getIncomingSet(h); }
+    HandleSeq getIncomingSet(Handle& h) const
+    {
+#if TABLE_INCOMING_INDEX
+        std::lock_guard<std::recursive_mutex> lck(_mtx);
+        return incomingIndex.getIncomingSet(h);
+#else
+        HandleSeq hs;
+        h->getIncomingSet(back_inserter(hs));
+        return hs;
+#endif
+    }
 
     template <typename OutputIterator> OutputIterator
     getIncomingSet(OutputIterator result,
-                   Handle h) const
+                   Handle& h) const
     {
+#if TABLE_INCOMING_INDEX
+        std::lock_guard<std::recursive_mutex> lck(_mtx);
         return std::copy(incomingIndex.begin(h),
                          incomingIndex.end(),
                          result);
+#else
+        return h->getIncomingSet(result);
+#endif
     }
-
 
     /**
      * Returns the set of atoms with a given target handle in their
@@ -433,33 +405,25 @@ public:
      */
     template <typename OutputIterator> OutputIterator
     getIncomingSetByType(OutputIterator result,
-                         Handle h,
+                         Handle& h,
                          Type type,
                          bool subclass = false) const
     {
+#if TABLE_INCOMING_INDEX
+        std::lock_guard<std::recursive_mutex> lck(_mtx);
         return std::copy_if(incomingIndex.begin(h),
                             incomingIndex.end(),
                             result,
-             [&](Handle h)->bool{
+#else
+        // XXX TODO it would be more efficient to move this to Atom.h
+        HandleSeq hs(getIncomingSet(h));
+        return std::copy_if(hs.begin(), hs.end(), result,
+#endif
+             [&](Handle h)->bool {
                      return isDefined(h)
                         and isType(h, type, subclass); });
     }
 
-    template <typename OutputIterator> OutputIterator
-    getIncomingSetByTypeVH(OutputIterator result,
-                           Handle h,
-                           Type type,
-                           bool subclass,
-                           VersionHandle vh) const
-    {
-        return std::copy_if(incomingIndex.begin(h),
-                            incomingIndex.end(),
-                            result,
-             [&](Handle h)->bool{
-                   return isDefined(h)
-                      and isType(h, type, subclass)
-                      and containsVersionedTV(h, vh); });
-    }
 
     /**
      * Returns the set of atoms whose outgoing set contains at least one
@@ -483,25 +447,8 @@ public:
                          bool subclass = true) const
     {
         // Gets the exact atom with the given name and type, in any AtomTable.
-        Handle targh = getHandle(targetName, targetType);
+        Handle targh(getHandle(targetType, targetName));
         return getIncomingSetByType(result, targh, type, subclass);
-    }
-
-    template <typename OutputIterator> OutputIterator
-    getIncomingSetByNameVH(OutputIterator result,
-                           const std::string& targetName,
-                           Type targetType,
-                           Type type,
-                           bool subclass,
-                           VersionHandle vh,
-                           VersionHandle targetVh) const
-    {
-        // Gets the exact atom with the given name and type, in any AtomTable.
-        Handle targh = getHandle(targetName, targetType);
-        // XXX TODO what the heck with targetVH ?? Are we supposed to
-        // check if targh above has it ?? And if not, I guess return
-        // empty set ... Who needs this stuff, anyway?
-        return getIncomingSetByTypeVH(result, targh, type, subclass, vh);
     }
 
     /**
@@ -531,8 +478,7 @@ public:
     UnorderedHandleSet getHandlesByOutgoing(const std::vector<Handle>&,
                               Type*, bool*, Arity,
                               Type type = ATOM,
-                              bool subclass = true,
-                              VersionHandle vh = NULL_VERSION_HANDLE) const;
+                              bool subclass = true) const;
 
     /**
      * Returns the set of atoms of a given name (atom type and subclasses
@@ -556,23 +502,9 @@ public:
         if (name.c_str()[0] == 0)
             return getHandlesByType(result, type, subclass);
 
+        std::lock_guard<std::recursive_mutex> lck(_mtx);
         UnorderedHandleSet hs = nodeIndex.getHandleSet(type, name.c_str(), subclass);
         return std::copy(hs.begin(), hs.end(), result);
-    }
-
-    template <typename OutputIterator> OutputIterator
-    getHandlesByNameVH(OutputIterator result,
-                       const std::string& name,
-                       Type type,
-                       bool subclass,
-                       VersionHandle vh) const
-    {
-        if (name.c_str()[0] == 0)
-            return getHandlesByTypeVH(result, type, subclass, vh);
-
-        UnorderedHandleSet hs = nodeIndex.getHandleSet(type, name.c_str(), subclass);
-        return std::copy_if(hs.begin(), hs.end(), result,
-             [&](Handle h)->bool{ return containsVersionedTV(h, vh); });
     }
 
     /**
@@ -600,8 +532,7 @@ public:
      * criteria in their outgoing set.
      */
     UnorderedHandleSet getHandlesByNames(const char**, Type*, bool*, Arity,
-                              Type type = ATOM, bool subclass = true,
-                              VersionHandle vh = NULL_VERSION_HANDLE) const
+                              Type type = ATOM, bool subclass = true) const
     throw (RuntimeException);
 
     /**
@@ -624,9 +555,8 @@ public:
      * criteria in their outgoing set.
      */
     UnorderedHandleSet getHandlesByTypes(Type* types, bool* subclasses, Arity arity,
-                              Type type = ATOM, bool subclass = true,
-                              VersionHandle vh = NULL_VERSION_HANDLE) const
-    { return getHandlesByNames((const char**) NULL, types, subclasses, arity, type, subclass, vh); }
+                              Type type = ATOM, bool subclass = true) const
+    { return getHandlesByNames((const char**) NULL, types, subclasses, arity, type, subclass); }
 
     /**
      * Returns the set of atoms within the given importance range.
@@ -635,9 +565,12 @@ public:
      * @param Importance range upper bound (inclusive).
      * @return The set of atoms within the given importance range.
      */
-    UnorderedHandleSet getHandleSet(AttentionValue::sti_t lowerBound,
-                              AttentionValue::sti_t upperBound = 32767) const
-        { return importanceIndex.getHandleSet(this, lowerBound, upperBound); }
+    UnorderedHandleSet getHandlesByAV(AttentionValue::sti_t lowerBound,
+                              AttentionValue::sti_t upperBound = AttentionValue::MAXSTI) const
+    {
+        std::lock_guard<std::recursive_mutex> lck(_mtx);
+        return importanceIndex.getHandleSet(this, lowerBound, upperBound);
+    }
 
     /**
      * Decays importance of all atoms in the table, reindexing
@@ -645,9 +578,7 @@ public:
      * below the "LOWER_STI_VALUE" threshold.
      * @return the list of the handles that should be removed.
      */
-    UnorderedHandleSet decayShortTermImportance()
-        { return importanceIndex.decayShortTermImportance(this); }
-
+    AtomPtrSet decayShortTermImportance();
 
     /**
      * Updates the importance index for the given atom. According to the
@@ -656,50 +587,29 @@ public:
      * @param The atom whose importance index will be updated.
      * @param The old importance bin where the atom originally was.
      */
-    void updateImportanceIndex(Atom* a, int bin)
+    void updateImportanceIndex(AtomPtr a, int bin)
     {
-        importanceIndex.updateImportance(a,bin);
+        std::lock_guard<std::recursive_mutex> lck(_mtx);
+        importanceIndex.updateImportance(a, bin);
     }
-
-    /**
-     * Merge the existing atom with the given handle with the given truth value.
-     * If the handle is valid, emits atom merged signal.
-     * @param h     Handle of the Atom to be merged
-     * @param tvn   TruthValue to be merged to current atom's truth value.  
-     */
-    void merge(Handle h, const TruthValue& tvn);
 
     /**
      * Adds an atom to the table, checking for duplicates and merging
      * when necessary. When an atom is added, the atom table takes over
      * the memory management for that atom. In other words, no other
-     * code should ever attempt to delete the pointer that is passed 
+     * code should ever attempt to delete the pointer that is passed
      * into this method.
      *
      * @param The new atom to be added.
      * @return The handle of the newly added atom.
      */
-    Handle add(Atom*) throw (RuntimeException);
+    Handle add(AtomPtr) throw (RuntimeException);
 
     /**
      * Return true if the atom table holds this handle, else return false.
      */
-    bool holds(const Handle& h) const { return (NULL != getAtom(h)); }
-
-    /** Get Atom object already in the AtomTable.
-     *
-     * @param h Handle of the atom to retrieve.
-     * @return pointer to Atom object, NULL if no atom within this AtomTable is
-     * associated with handle.
-     */
-    inline Atom* getAtom(const Handle& h) const {
-        if (h == Handle::UNDEFINED) return NULL;
-        Atom *atom = TLB::getAtom(h);
-        if (atom)
-            // if the atom isn't linked to this AtomTable
-            // then blank pointer
-            if (this != atom->getAtomTable()) atom = NULL;
-        return atom;
+    bool holds(Handle& h) const {
+        return (NULL != h) and h->getAtomTable() == this;
     }
 
     /** Get Node object already in the AtomTable.
@@ -708,8 +618,9 @@ public:
      * @return pointer to Node object, NULL if no atom within this AtomTable is
      * associated with handle or if the atom is a link.
      */
-    inline Node* getNode(const Handle& h) const {
-        return dynamic_cast<Node*>(getAtom(h));
+    inline NodePtr getNode(Handle& h) const {
+        h = getHandle(h); // force resolution of uuid into atom pointer.
+        return NodeCast(h);
     }
 
     /** Get Link object already in the AtomTable.
@@ -718,33 +629,44 @@ public:
      * @return pointer to Link object, NULL if no atom within this AtomTable is
      * associated with handle or if the atom is a node.
      */
-    inline Link* getLink(const Handle& h) const {
-        return dynamic_cast<Link*>(getAtom(h));
+    inline LinkPtr getLink(Handle& h) const {
+        h = getHandle(h); // force resolution of uuid into atom pointer.
+        return LinkCast(h);
     }
 
     /**
-     * Removes atom from the table.
+     * Extracts atoms from the table. Table will not contain the
+     * extracted atoms anymore.
      *
-     * @param The atom to be removed.
-     * @param Recursive-removal flag; if set, the links in the incoming
-     *        set will also be removed.
-     * @return True if the removal operation was successful. False, otherwise.
+     * Note that if the recursive flag is set to false, and the atom
+     * appears in the incoming set of some other atom, then extraction
+     * will fail.  Thus, it is generally recommended that extraction
+     * be recursive, unless you can guarentee that the atom is not in
+     * someone else's outgoing set.
+     *
+     * @param handle The atom to be extracted.
+     * @param recursive Recursive-removal flag; if set, the links in the
+     *        incoming set will also be extracted.
+     * @return A set of the extracted atoms.
      */
-    bool remove(Handle, bool recursive = false);
-
+    AtomPtrSet extract(Handle& handle, bool recursive = true);
 
     /**
      * Return a random atom in the AtomTable.
      */
     Handle getRandom(RandGen* rng) const;
 
-    /**
-     * Returns whether DynamicsStatisticsAgent is to be used with
-     * this table or not.
-     */
-    bool usesDSA() const;
+    AtomSignal& addAtomSignal() { return _addAtomSignal; }
+    AtomPtrSignal& removeAtomSignal() { return _removeAtomSignal; }
+
+    /** Provide ability for others to find out about AV changes */
+    AVCHSigl& AVChangedSignal() { return _AVChangedSignal; }
+
+    /** Provide ability for others to find out about TV changes */
+    TVCHSigl& TVChangedSignal() { return _TVChangedSignal; }
 };
 
+/** @}*/
 } //namespace opencog
 
 #endif // _OPENCOG_ATOMTABLE_H

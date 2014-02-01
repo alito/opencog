@@ -55,6 +55,7 @@ void run_moses(metapopulation& metapop,
 /// Print metapopulation results to stdout, logfile, etc.
 struct metapop_printer
 {
+    metapop_printer() {}
     metapop_printer(long _result_count,
                     bool _output_score,
                     bool _output_penalty,
@@ -152,7 +153,9 @@ private:
     bool output_only_best;
     bool output_eval_number;
     bool output_with_labels;
-    const vector<string>& ilabels;
+public:
+    vector<string> ilabels;
+private:
     string output_file;
     bool output_python;
     bool is_mpi;
@@ -176,7 +179,7 @@ void metapop_moses_results_b(const std::vector<combo_tree>& bases,
                              Printer& printer)
 {
     moses_statistics stats;
-    optimizer_base *optimizer = NULL;
+    optimizer_base* optimizer = nullptr;
 
     if (opt_params.opt_algo == hc) { // exhaustive neighborhood search
         optimizer = new hill_climbing(opt_params, hc_params);

@@ -1,10 +1,9 @@
 /*
- * opencog/persist/PersistModule.h
+ * opencog/persist/sql/PersistModule.h
  *
- * Copyright (C) 2008 by OpenCog Foundation
+ * Copyright (c) 2008 by OpenCog Foundation
+ * Copyright (c) 2008, 2009, 2013 Linas Vepstas <linasvepstas@gmail.com>
  * All Rights Reserved
- *
- * Written by Gustavo Gama <gama@vettalabs.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License v3 as
@@ -36,20 +35,23 @@
 
 namespace opencog
 {
+/** \addtogroup grp_persist
+ *  @{
+ */
 
 class SQLBackingStore;
 class PersistModule : public Module
 {
 private:
-    AtomStorage *store;
+    AtomStorage *_store;
 
-    SQLBackingStore *backing;
+    SQLBackingStore *_backing;
 
     DECLARE_CMD_REQUEST(PersistModule, "sql-close", do_close, 
        "Close the SQL database", 
        "Usage: sql-close\n\n"
        "Close the currently open SQL database", 
-       false)
+       false, false)
 
     DECLARE_CMD_REQUEST(PersistModule, "sql-load", do_load,
        "Load contents of SQL database",
@@ -59,7 +61,7 @@ private:
        "is a bulk load -- *all* atoms in the database will be loaded.\n"
        "The loading ocurrs in a distinct thread; this command only initiates\n"
        "the loading.", 
-       false)
+       false, false)
 
 public:
     DECLARE_CMD_REQUEST(PersistModule, "sql-open", do_open,
@@ -68,7 +70,7 @@ public:
        "Open a connection to an SQL database, for saving or restoring\n"
        "atomtable contents. If the tables needed to hold atomtable\n"
        "information do not yet exist, they will be created.",
-       false)
+       false, false)
 
 private:
     DECLARE_CMD_REQUEST(PersistModule, "sql-store", do_store,
@@ -77,22 +79,25 @@ private:
        "Save the contents of the atomtable into the currently open SQL\n"
        "database.  This is a bulk-save -- all atoms will be saved. They can\n"
        "be loaded at a later time with the sql-load command.",
-       false)
+       false, false)
 
     Handle fetch_atom(Handle);
     Handle fetch_incoming_set(Handle);
     Handle store_atom(Handle);
+    void load_type(Type);
+    void barrier(void);
 
 public:
     const char* id(void);
 
-    PersistModule(void);
+    PersistModule(CogServer&);
     virtual ~PersistModule();
 
     virtual void init(void);
 
 }; // class
 
+/** @}*/
 }  // namespace
 
 #endif // _OPENCOG_PERSIST_MODULE_H

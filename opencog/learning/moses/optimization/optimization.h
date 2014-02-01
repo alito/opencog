@@ -139,7 +139,7 @@ private:
 struct optim_stats
 {
     optim_stats()
-        : nsteps(0), deme_count(0), total_steps(0), total_evals(0),
+        : nsteps(0), demeID(0), total_steps(0), total_evals(0),
         field_set_size(0), over_budget(false)
 #ifdef GATHER_STATS
           , hiscore(0.0), hicount(0.0),
@@ -147,7 +147,7 @@ struct optim_stats
 #endif
     {}
     unsigned nsteps;
-    unsigned deme_count;
+    demeID_t demeID;
     unsigned total_steps;
     unsigned total_evals;
     unsigned field_set_size;
@@ -170,6 +170,9 @@ typedef scored_instance<composite_score> deme_inst_t;
 // Base class for all optimizers
 struct optimizer_base : optim_stats
 {
+    optimizer_base(const optim_parameters& op = optim_parameters())
+        : opt_params(op) {}
+    
     // Return # of evaluations actually performed
     virtual unsigned operator()(deme_t& deme,
                                 const iscorer_base& iscorer,
@@ -177,6 +180,8 @@ struct optimizer_base : optim_stats
                                 time_t max_time) = 0;
 
     virtual ~optimizer_base() {}
+
+    optim_parameters opt_params;
 };
 
 } // ~namespace moses

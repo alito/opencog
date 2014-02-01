@@ -16,7 +16,6 @@ LINK_LIBRARIES(
 	nlp-types
 	query
 	server
-	${Boost_SIGNALS_LIBRARY}
 )
 
 # We want to run the tests in the order below;
@@ -36,12 +35,32 @@ IF (HAVE_GUILE)
 	ADD_CXXTEST(ExecutionUTest)
 	ADD_CXXTEST(BuggyStackUTest)
 	ADD_CXXTEST(VarTypeNotUTest)
+	ADD_CXXTEST(BuggyNotUTest)
 	ADD_CXXTEST(MatchLinkUTest)
 	ADD_CXXTEST(UnorderedUTest)
 	ADD_CXXTEST(StackMoreUTest)
+	ADD_CXXTEST(EinsteinUTest)
 
 	TARGET_LINK_LIBRARIES(VarTypeNotUTest
 		cogutil
 	)
 ENDIF (HAVE_GUILE)
 
+CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/tests/query/buggy-stack.scm
+    ${PROJECT_BINARY_DIR}/tests/query/buggy-stack.scm)
+CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/tests/query/var-type-not.scm
+    ${PROJECT_BINARY_DIR}/tests/query/var-type-not.scm)
+CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/tests/query/match-link.scm
+    ${PROJECT_BINARY_DIR}/tests/query/match-link.scm)
+CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/tests/query/unordered.scm
+    ${PROJECT_BINARY_DIR}/tests/query/unordered.scm)
+CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/tests/query/unordered-more.scm
+    ${PROJECT_BINARY_DIR}/tests/query/unordered-more.scm)
+CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/tests/query/stackmore-o-o.scm
+    ${PROJECT_BINARY_DIR}/tests/query/stackmore-o-o.scm)
+CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/tests/query/stackmore-o-u.scm
+    ${PROJECT_BINARY_DIR}/tests/query/stackmore-o-u.scm)
+CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/tests/query/stackmore-u-o.scm
+    ${PROJECT_BINARY_DIR}/tests/query/stackmore-u-o.scm)
+CONFIGURE_FILE(${CMAKE_SOURCE_DIR}/tests/query/stackmore-u-u.scm
+    ${PROJECT_BINARY_DIR}/tests/query/stackmore-u-u.scm)

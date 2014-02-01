@@ -82,6 +82,7 @@ Octree::Octree(Octree3DMapManager* _om, BlockVector& _nearLeftBottomPoint, Octre
 
 Octree::~Octree()
 {
+    // delete itself at the same time delete all its children octrees recursively
     if (mParent != 0)
     {
         mParent->mChildren[mIndex_x][mIndex_y][mIndex_z] = 0;
@@ -184,7 +185,7 @@ void Octree::addSolidBlock(Block3D * _block, bool byKnownIndexes, int _x, int _y
     {
         tree->mAllMyBlocks[x][y][z] = _block;
 
-        // After adding this block, we'll try to merge this tree into a bigger block if it is full.
+        // After adding this block, we'll try to merge this tree into a bigger block if it is full of same type of blocks.
         Block3D* bigBlock = tree->mergeAllMyBlocks();
 
         if (bigBlock != 0)
@@ -313,6 +314,8 @@ AxisAlignedBox& Octree::getChildBoundingBoxByIndex(int x, int y, int z)
 bool Octree::checkIsSolid(const BlockVector& _pos, Block3D* & _block3d) const
 {
     Octree* tree = (Octree*)(mOctree3DMapManager->getRootOctree());
+
+    _block3d = 0;
 
     int x,y,z;
     while(true)
@@ -581,7 +584,7 @@ vector<BlockEntity*> Octree::getNeighbourEntities(BlockVector& _pos)
         for (int j = -1; j < 2; j ++)
             for (int k = -1; k < 2; k ++)
             {
-                if (i == 0 && j == 0 && k == 0)
+                if ((i == 0) && (j == 0) && (k == 0))
                     continue;
                 BlockVector nextPos(_pos.x + i,_pos.y + j, _pos.z + k);
 
@@ -594,7 +597,7 @@ vector<BlockEntity*> Octree::getNeighbourEntities(BlockVector& _pos)
                     if (block == beginBlock)
                         continue; // we don't contain the begin block in our return list
 
-                    for (it = entities.begin(); it != entities.end(); ++ i )
+                    for (it = entities.begin(); it != entities.end(); ++ it )
                     {
                         if (block->mBlockEntity == (BlockEntity*)(*it))
                             break;
@@ -632,7 +635,6 @@ vector<Block3D*> Octree::findAllBlocksCombinedWith(BlockVector* _pos, bool useBl
     BlockMaterial curMaterial;
 
     while(searchList.size() != 0)
-
     {
         curPos = searchList.front();
         if (checkIsSolid(curPos, curblock))
@@ -755,9 +757,9 @@ vector<BlockVector> Octree::getAllNeighbourSolidBlockVectors(BlockVector& curPos
         return vectorList;
 }
 
-Octree* Octree::clone(Octree3DMapManager* newOctree3DMapManager)
+Octree* Octree::clone(Octree3DMapManager* newOctree3DMapManager, Octree *parentTree)
 {
-    Octree* cloneOctree = new Octree(newOctree3DMapManager,mParent,mSize,mOctreeDepth,mBoundingBox,mNearLeftBottomPoint,mCentre,mIndex_x,mIndex_y,mIndex_z);
+    Octree* cloneOctree = new Octree(newOctree3DMapManager,parentTree,mSize,mOctreeDepth,mBoundingBox,mNearLeftBottomPoint,mCentre,mIndex_x,mIndex_y,mIndex_z);
 
     for (int x = 0; x < 2; x ++)
         for (int y = 0; y < 2; y ++)
@@ -767,7 +769,7 @@ Octree* Octree::clone(Octree3DMapManager* newOctree3DMapManager)
                 if (mChildren[x][y][z] == 0)
                     cloneOctree->mChildren[x][y][z] = 0;
                 else
-                    cloneOctree->mChildren[x][y][z] = (mChildren[x][y][z])->clone(newOctree3DMapManager);
+                    cloneOctree->mChildren[x][y][z] = (mChildren[x][y][z])->clone(newOctree3DMapManager,cloneOctree);
 
                 // clone the blocks inside me
                 if (mAllMyBlocks[x][y][z] == 0)

@@ -54,21 +54,6 @@ CountTruthValue::CountTruthValue(CountTruthValue const& source)
     count = source.count;
 }
 
-void CountTruthValue::setMean(strength_t m)
-{
-    mean = m;
-}
-
-void CountTruthValue::setCount(count_t c)
-{
-    count = c;
-}
-
-void CountTruthValue::setConfidence(confidence_t c)
-{
-    confidence = c;
-}
-
 strength_t CountTruthValue::getMean() const
 {
     return mean;
@@ -84,58 +69,27 @@ confidence_t CountTruthValue::getConfidence() const
     return confidence;
 }
 
-float CountTruthValue::toFloat() const
-{
-    return static_cast<float>(getMean());
-}
-
 std::string CountTruthValue::toString() const
 {
     char buf[1024];
-    sprintf(buf, "[%f,%f,%f]",
+    sprintf(buf, "(ctv %f %f %f)",
             static_cast<float>(getMean()),
             static_cast<float>(getCount()),
-            static_cast<float>(getConfidence()));
+            static_cast<double>(getConfidence()));
     return buf;
-}
-
-CountTruthValue* CountTruthValue::clone() const
-{
-    return new CountTruthValue(*this);
-}
-
-CountTruthValue& CountTruthValue::operator=(const TruthValue & rhs)
-    throw (RuntimeException)
-{
-    const CountTruthValue* tv = dynamic_cast<const CountTruthValue*>(&rhs);
-    if (tv) {
-        if (tv != this) { // check if this is the same object first.
-            mean = tv->mean;
-            confidence = tv->confidence;
-            count = tv->count;
-        }
-    } else {
-#ifndef WIN32
-        // The following line was causing a compilation error on MSVC...
-        throw RuntimeException(TRACE_INFO,
-              "Cannot assign a TV of type '%s' to one of type '%s'\n",
-              typeid(rhs).name(), typeid(*this).name());
-#else
-        throw RuntimeException(TRACE_INFO,
-              "CountTruthValue - Invalid assignment of a CountTV object.");
-#endif
-
-    }
-    return *this;
 }
 
 bool CountTruthValue::operator==(const TruthValue& rhs) const
 {
     const CountTruthValue *ctv = dynamic_cast<const CountTruthValue *>(&rhs);
     if (NULL == ctv) return false;
-    if (mean != ctv->mean) return false;
-    if (confidence != ctv->confidence) return false;
-    if (count != ctv->count) return false;
+
+#define FLOAT_ACCEPTABLE_ERROR 0.000001
+    if (FLOAT_ACCEPTABLE_ERROR < fabs(mean - ctv->mean)) return false;
+    if (FLOAT_ACCEPTABLE_ERROR < fabs(confidence - ctv->confidence)) return false;
+#define DOUBLE_ACCEPTABLE_ERROR 1.0e-14
+    if (DOUBLE_ACCEPTABLE_ERROR < fabs(1.0 - (ctv->count/count))) return false;
+
     return true;
 }
 
@@ -144,31 +98,22 @@ TruthValueType CountTruthValue::getType() const
     return COUNT_TRUTH_VALUE;
 }
 
-CountTruthValue* CountTruthValue::fromString(const char* tvStr)
+TruthValuePtr CountTruthValue::merge(TruthValuePtr other) const
 {
-    float tmean, tcount, tconf;
-    sscanf(tvStr, "[%f,%f,%f]", &tmean, &tconf, &tcount);
-    return new CountTruthValue(static_cast<strength_t>(tmean),
-                               static_cast<confidence_t>(tconf),
-                               static_cast<count_t>(tcount));
-}
+    CountTruthValuePtr oc =
+        std::dynamic_pointer_cast<CountTruthValue>(other);
 
-TruthValue* CountTruthValue::merge(const TruthValue& other) const
-{
-    const CountTruthValue *oc =
-        dynamic_cast<const CountTruthValue *>(&other);
-
-    // If other is a simple truth value, then perhaps we should 
-    // merge it in, as if it were a count truth value with a count 
-    // of 1?  In which case, we should add a merge routine to 
-    // SimpleTruthValue to do likewise... Anyway, for now, just
-    // ignore this possible complication to the semantics.
-    if (NULL == oc) return TruthValue::merge(other);
+    // If other is a simple truth value, *and* its not the default TV,
+    // then perhaps we should merge it in, as if it were a count truth
+    // value with a count of 1?  In which case, we should add a merge
+    // routine to SimpleTruthValue to do likewise... Anyway, for now,
+    // just ignore this possible complication to the semantics.
+    if (NULL == oc) return std::static_pointer_cast<TruthValue>(clone());
     
     // If both this and other are counts, then accumulate to get the
     // total count, and average together the strengths, using the 
     // count as the relative weight.
-    CountTruthValue *nc = clone();
+    CountTruthValuePtr nc = std::static_pointer_cast<CountTruthValue>(clone());
     nc->count += oc->count;
     nc->mean = (this->mean * this->count +
                    oc->mean * oc->count) / nc->count;
@@ -176,6 +121,6 @@ TruthValue* CountTruthValue::merge(const TruthValue& other) const
     {
         nc->confidence = oc->confidence;
     }
-    return nc;
+    return std::static_pointer_cast<TruthValue>(nc);
 }
 

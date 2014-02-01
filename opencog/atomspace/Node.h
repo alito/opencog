@@ -26,13 +26,14 @@
 #ifndef _OPENCOG_NODE_H
 #define _OPENCOG_NODE_H
 
+#include <opencog/util/oc_assert.h>
 #include <opencog/atomspace/Atom.h>
-#ifdef ZMQ_EXPERIMENT
-#include "ProtocolBufferSerializer.h"
-#endif
 
 namespace opencog
 {
+/** \addtogroup grp_atomspace
+ *  @{
+ */
 
 /**
  * This is a subclass of Atom. It represents the most basic kind of
@@ -40,25 +41,15 @@ namespace opencog
  */
 class Node : public Atom
 {
-    friend class AtomSpaceImpl;  // needs acces to clone()
-#ifdef ZMQ_EXPERIMENT
-    friend class ProtocolBufferSerializer;
-#endif
-
 private:
-
     // properties
     std::string name;
-
-#ifdef ZMQ_EXPERIMENT
-    Node() {};
-#endif
     void init(const std::string&) throw (InvalidParamException, AssertionException);
 
-    // cloning atoms is a fundamental violation ofthe architecture. FIXME XXX
-    virtual Atom* clone() const;
-public:
+    Node(const Node &l) : Atom(0)
+    { OC_ASSERT(false, "Node: bad use of copy ctor"); }
 
+public:
     /**
      * Constructor for this class.
      *
@@ -68,22 +59,21 @@ public:
      * @param Node truthvalue A reference to a TruthValue object.
      */
     Node(Type t, const std::string& s,
-         const TruthValue& tv = TruthValue::NULL_TV(),
-         const AttentionValue& av = AttentionValue::DEFAULT_AV())
+         TruthValuePtr tv = TruthValue::NULL_TV(),
+         AttentionValuePtr av = AttentionValue::DEFAULT_AV())
         : Atom(t,tv,av) {
         init(s);
     }
 
-    /** Copy constructor, does not copy atom table membership! */
-    Node(const Node &n) 
-        : Atom(n.getType(),n.getTruthValue(),n.getAttentionValue()) {
+    /**
+     * Copy constructor, does not copy atom table membership!
+     * Cannot be const, because the get() functions can't be,
+     * because thread-safe locking required in the gets.
+     */
+    Node(Node &n)
+        : Atom(n.getType(), n.getTruthValue(), n.getAttentionValue()) {
         init(n.name);
     }
-
-    /**
-     * Destructor for this class.
-     */
-    virtual ~Node();
 
     /**
      * Gets the name of the node.
@@ -92,23 +82,13 @@ public:
      */
     const std::string& getName() const;
 
-    /*
-     * @param Node name A reference to a std::string with the name
-     *             of the node.  Use empty string for unamed node.
-     * @exception RuntimeException is thrown if this method is
-     *             called for an Node already inserted into
-     *             AtomSpace. Otherwise, internal index structures
-     *              would become inconsistent.
-     */
-    void  setName(const std::string&) throw (RuntimeException);
-
     /**
      * Returns a string representation of the node.
      *
      * @return A string representation of the node.
      */
-    std::string toString() const;
-    std::string toShortString() const;
+    std::string toString(std::string indent = "");
+    std::string toShortString(std::string indent = "");
 
     /**
      * Returns whether a given atom is equal to the current node.
@@ -125,6 +105,15 @@ public:
     virtual bool operator!=(const Atom&) const;
 };
 
+typedef std::shared_ptr<Node> NodePtr;
+static inline NodePtr NodeCast(const Handle& h)
+    { AtomPtr a(h); return std::dynamic_pointer_cast<Node>(a); }
+static inline NodePtr NodeCast(AtomPtr a) { return std::dynamic_pointer_cast<Node>(a); }
+
+// XXX temporary hack ...
+#define createNode std::make_shared<Node>
+
+/** @}*/
 } // namespace opencog
 
 #endif // _OPENCOG_NODE_H

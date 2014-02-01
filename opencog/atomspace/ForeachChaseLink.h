@@ -41,6 +41,9 @@
 
 namespace opencog
 {
+/** \addtogroup grp_atomspace
+ *  @{
+ */
 
 /**
  * This class is not meant for external use, it is meant to be a
@@ -181,15 +184,13 @@ private:
 	 */
 	inline bool find_link_type(Handle link_h)
 	{
-		const AtomSpace &as = atomspace();
-
 		// Make sure the link is of the specified link type
-		if (link_type != as.getType(link_h)) return false;
+		if (link_type != link_h->getType()) return false;
 
 		cnt = -1;
 		to_atom = Handle::UNDEFINED;
 		// foreach_outgoing_handle(link_h, PrivateUseOnlyChaseLink::endpoint_matcher, this);
-		foreach_outgoing_handle(link_h, endpoint_matcher, this);
+		foreach_outgoing_handle(LinkCast(link_h), endpoint_matcher, this);
 
 		bool rc = false;
 		if (Handle::UNDEFINED != to_atom)
@@ -342,6 +343,7 @@ inline bool foreach_unordered_binary_link(Handle h, Type ltype, bool (T::*cb)(Ha
 	return cl.follow_unordered_binary_link(h, ltype, cb, data);
 }
 
+/** @}*/
 } // namespace opencog
 
 #endif // _OPENCOG_LINK_CHASE_H

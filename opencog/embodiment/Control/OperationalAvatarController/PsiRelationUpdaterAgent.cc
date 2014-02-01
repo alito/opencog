@@ -22,7 +22,6 @@
 #include <boost/tokenizer.hpp>
 
 #include <opencog/atomspace/SimpleTruthValue.h>
-#include <opencog/nlp/types/atom_types.h>
 #include <opencog/spacetime/atom_types.h>
 #include <opencog/spacetime/SpaceServer.h>
 
@@ -39,7 +38,7 @@ PsiRelationUpdaterAgent::~PsiRelationUpdaterAgent()
 
 }
 
-PsiRelationUpdaterAgent::PsiRelationUpdaterAgent()
+PsiRelationUpdaterAgent::PsiRelationUpdaterAgent(CogServer& cs) : Agent(cs)
 {
     this->cycleCount = 0;
 
@@ -47,12 +46,10 @@ PsiRelationUpdaterAgent::PsiRelationUpdaterAgent()
     this->forceInitNextCycle();
 }
 
-void PsiRelationUpdaterAgent::init(opencog::CogServer * server) 
+void PsiRelationUpdaterAgent::init() 
 {
     logger().debug( "PsiRelationUpdaterAgent::%s - Initializing the Agent [ cycle = %d ]",
-                    __FUNCTION__, 
-                    this->cycleCount
-                  );
+                    __FUNCTION__, this->cycleCount);
 
     // Get novelty level parameters from configuration file
     this->noveltyInitLevel = config().get_double("PSI_NOVELTY_INIT_LEVEL");
@@ -61,11 +58,11 @@ void PsiRelationUpdaterAgent::init(opencog::CogServer * server)
     this->noveltyDecayFactor = config().get_double("PSI_NOVELTY_DECAY_FACTOR");
 
     // Get OAC
-    OAC* oac = dynamic_cast<OAC*>(server);
+    OAC* oac = dynamic_cast<OAC*>(&_cogserver);
     OC_ASSERT(oac, "Did not get an OAC server");
 
     // Get AtomSpace
-    const AtomSpace& atomSpace = oac->getAtomSpace();
+    AtomSpace& atomSpace = oac->getAtomSpace();
 
     // Get relation names from the configuration file
     std::string relationNames = config()["PSI_RELATIONS"];
@@ -73,26 +70,23 @@ void PsiRelationUpdaterAgent::init(opencog::CogServer * server)
     boost::char_separator<char> sep(", ");
     boost::tokenizer< boost::char_separator<char> > relationNamesTok (relationNames, sep);
 
-    // Process Relations one by one 
+    // Process Relations one by one
     for ( boost::tokenizer< boost::char_separator<char> >::iterator iRelationName = relationNamesTok.begin();
           iRelationName != relationNamesTok.end();
           iRelationName ++ ) {
 
-        // Get corresponding PredicateNode 
+        // Get corresponding PredicateNode
         Handle hRelationPredicateNode = atomSpace.getHandle(PREDICATE_NODE, *iRelationName);
 
         if ( hRelationPredicateNode==opencog::Handle::UNDEFINED ) {
-            logger().warn("PsiRelationUpdaterAgent::%s - Failed to find PredicateNode for relation '%s' [ cycle = %d]", 
-                          __FUNCTION__, 
-                          (*iRelationName).c_str(), 
-                          this->cycleCount
-                         );
-            continue; 
+            logger().warn("PsiRelationUpdaterAgent::%s - Failed to find PredicateNode for relation '%s' [ cycle = %d]",
+                          __FUNCTION__, (*iRelationName).c_str(), this->cycleCount);
+            continue;
         }
 
         // Get all the EvaluationLink containing hRelationPredicateNode
         std::vector<Handle> relationEvaluationLinkSet;
-        
+ 
         atomSpace.getHandleSet( back_inserter(relationEvaluationLinkSet), 
                                 hRelationPredicateNode,
                                 EVALUATION_LINK, 
@@ -237,9 +231,9 @@ Handle PsiRelationUpdaterAgent::getEntityHandle(const AtomSpace & atomSpace, con
     // TODO: What is responsible for creating these handles to entities?
     std::vector<Handle> entityHandleSet;
 
-    atomSpace.getHandleSet( back_inserter(entityHandleSet),
-                            OBJECT_NODE,
+    atomSpace.getHandlesByName( back_inserter(entityHandleSet),
                             entityName,
+                            OBJECT_NODE,
                             true   // Use 'true' here, because OBJECT_NODE is the base class for all the entities
                           );
 
@@ -404,7 +398,7 @@ void PsiRelationUpdaterAgent::updateEntityNovelty(opencog::CogServer * server)
         // Update the truth value
         if ( novelty.isNovel(this->noveltyThreshold) ) {
 
-            SimpleTruthValue stvTrue(1, 1);
+            TruthValuePtr stvTrue = SimpleTruthValue::createTV(1, 1);
             atomSpace.setTV(hRelationEvaluationLink, stvTrue); 
 
             bHasNovelty = true; 
@@ -417,7 +411,7 @@ void PsiRelationUpdaterAgent::updateEntityNovelty(opencog::CogServer * server)
                           );
        
         } else {
-            SimpleTruthValue stvFalse(0, 0);
+            TruthValuePtr stvFalse = SimpleTruthValue::createTV(0, 0);
             atomSpace.setTV(hRelationEvaluationLink, stvFalse); 
             
             logger().debug("PsiRelationUpdaterAgent::%s pet is not longer 'curious_about' entity '%s' (novelty level = %f) [ cycle = %d ]", 
@@ -434,9 +428,9 @@ void PsiRelationUpdaterAgent::updateEntityNovelty(opencog::CogServer * server)
     // TODO: 'has_novelty' predicate is probably obsolete
     
     if (bHasNovelty) 
-        AtomSpaceUtil::setPredicateValue(atomSpace, "has_novelty", SimpleTruthValue(1.0f, 0.0f), petHandle);
+        AtomSpaceUtil::setPredicateValue(atomSpace, "has_novelty", SimpleTruthValue::createTV(1.0f, 0.0f), petHandle);
     else
-        AtomSpaceUtil::setPredicateValue(atomSpace, "has_novelty", SimpleTruthValue(0.0f, 0.0f), petHandle);
+        AtomSpaceUtil::setPredicateValue(atomSpace, "has_novelty", SimpleTruthValue::createTV(0.0f, 0.0f), petHandle);
 }
 
 void PsiRelationUpdaterAgent::updateEntityRelation(AtomSpace & atomSpace, 
@@ -515,7 +509,7 @@ void PsiRelationUpdaterAgent::updateEntityRelation(AtomSpace & atomSpace,
                 // TODO: Actually, this not so correct, the truth value should not be a constant (1, 1)
                 //       We should give the pet the ability to distinguish the intensity of relation,
                 //       such as friend, good friend and best friend
-                SimpleTruthValue stvTrue(1, 1);
+                TruthValuePtr stvTrue = SimpleTruthValue::createTV(1, 1);
                 atomSpace.setTV(hRelationEvaluationLink, stvTrue); 
                 
                 logger().debug("PsiRelationUpdaterAgent::%s Updated the trutu value of '%s' [ cycle = %d ]", 
@@ -532,17 +526,15 @@ void PsiRelationUpdaterAgent::updateEntityRelation(AtomSpace & atomSpace,
 
 }
 
-void PsiRelationUpdaterAgent::run(opencog::CogServer * server)
+void PsiRelationUpdaterAgent::run()
 {
     this->cycleCount ++;
 
     logger().debug( "PsiRelationUpdaterAgent::%s - Executing run %d times",
-                     __FUNCTION__, 
-                     this->cycleCount
-                  );
+                     __FUNCTION__, this->cycleCount);
 
     // Get OAC
-    OAC* oac = dynamic_cast<OAC*>(server);
+    OAC* oac = dynamic_cast<OAC*>(&_cogserver);
     OC_ASSERT(oac, "Did not get an OAC server");
 
     // Get AtomSpace
@@ -582,9 +574,7 @@ void PsiRelationUpdaterAgent::run(opencog::CogServer * server)
     // Check if the pet spatial info is already received
     if ( !spaceServer().getLatestMap().containsObject(petHandle ))  {
         logger().warn("PsiRelationUpdaterAgent::%s - Pet was not inserted in the space map yet [ cycle = %d ]", 
-                      __FUNCTION__, 
-                      this->cycleCount
-                     );
+                      __FUNCTION__, this->cycleCount);
         return;
     }
 
@@ -606,10 +596,10 @@ void PsiRelationUpdaterAgent::run(opencog::CogServer * server)
 
     // Initialize entity, relation lists etc.
     if ( !this->bInitialized )
-        this->init(server);
+        this->init();
 
     // Deal with 'curious_about' relation
-    this->updateEntityNovelty(server);
+    this->updateEntityNovelty(&_cogserver);
    
     // Update other relations 
     this->updateEntityRelation(atomSpace, petHandle, procedureInterpreter, procedureRepository);

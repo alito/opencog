@@ -23,7 +23,7 @@ using namespace opencog;
 
 #define DEBUG
 
-SenseSimilarityLCH::SenseSimilarityLCH(AtomSpace *_as) : as(_as)
+SenseSimilarityLCH::SenseSimilarityLCH()
 {
 	// Set 'max_follow_holo' to a small number to limit the total number
 	// of holonym relations to be followed. Setting this to a large number
@@ -70,7 +70,7 @@ SenseSimilarityLCH::~SenseSimilarityLCH()
  * Note that currently, only the "mean" is used to nindicate similarity;
  * whereas teh confidence is set to the arbitrary 0.9
  */
-SimpleTruthValue SenseSimilarityLCH::similarity(Handle fs, Handle ss)
+SimpleTruthValuePtr SenseSimilarityLCH::similarity(Handle fs, Handle ss)
 {
 	first_sense = fs;
 	second_sense = ss;
@@ -84,8 +84,7 @@ SimpleTruthValue SenseSimilarityLCH::similarity(Handle fs, Handle ss)
 	    (0 == first_pos.compare("adj")) ||
 	    (0 == first_pos.compare("adv")))
 	{
-		SimpleTruthValue stv(0.0, 0.5);
-		return stv;
+		return SimpleTruthValue::createSTV(0.0, 0.5);
 	}
 
 	// As of wordnet-3.0, the depth of verb taxonomy is 14, noun is 20.
@@ -132,19 +131,18 @@ SimpleTruthValue SenseSimilarityLCH::similarity(Handle fs, Handle ss)
 
 #ifdef DEBUG
 	printf("(%s, %s) dist=%d sim=%g\n",
-	       as->getName(first_sense).c_str(),
-	       as->getName(second_sense).c_str(),
+	       NodeCast(first_sense)->getName().c_str(),
+	       NodeCast(second_sense)->getName().c_str(),
 	       min_cnt, sim);
 	// printf("----\n");
 #endif
 
-	SimpleTruthValue stv((float) sim, 0.9f);
-	return stv;
+	return SimpleTruthValue::createSTV((float) sim, 0.9f);
 }
 
 bool SenseSimilarityLCH::up_first(Handle up)
 {
-	if (as->getType(up) != WORD_SENSE_NODE) return false;
+	if (up->getType() != WORD_SENSE_NODE) return false;
 
 	first_cnt ++;
 	if (up == second_sense)
@@ -191,7 +189,7 @@ bool SenseSimilarityLCH::up_first(Handle up)
 
 bool SenseSimilarityLCH::up_second(Handle up)
 {
-	if (as->getType(up) != WORD_SENSE_NODE) return false;
+	if (up->getType() != WORD_SENSE_NODE) return false;
 
 	// Don't explore paths that are longer than the current shortest path.
 	int dist = first_cnt + second_cnt + 1;

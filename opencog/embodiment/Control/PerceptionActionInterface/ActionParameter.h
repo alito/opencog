@@ -65,9 +65,20 @@ public:
 
     bool operator==(const Vector& other) const
     {
-        if ((x - other.x < MIN_DOUBLE) &&
-            (y - other.y < MIN_DOUBLE) &&
-            (z - other.z < MIN_DOUBLE) )
+        double d_x = x - other.x;
+        double d_y = y - other.y;
+        double d_z = z - other.z;
+
+        if (d_x < 0)
+            d_x = -d_x;
+        if (d_y < 0)
+            d_y = -d_y;
+        if (d_z < 0)
+            d_z = -d_z;
+
+        if ((d_x < MIN_DOUBLE) &&
+            (d_y < MIN_DOUBLE) &&
+            (d_z < MIN_DOUBLE) )
             return true;
         else
             return false;
@@ -239,6 +250,8 @@ private:
      */
     ParamValue value;
 
+    string valueString; // The string to represent value, for easy debugging
+
 public:
     static bool areFromSameType(const ParamValue& v1, const ParamValue& v2);
 
@@ -261,7 +274,7 @@ public:
     /**
      * Basic getters
      */
-    const string& getName() const;
+    string getName() const;
     const ActionParamType& getType() const;
     ParamValue &getValue();
 
@@ -277,6 +290,13 @@ public:
     bool isFuzzyIntervalIntValue() const;
     bool isFuzzyIntervalFloatValue() const;
 
+    static bool isStringValue(ParamValue value) ;
+    static bool isRotationValue(ParamValue value) ;
+    static bool isVectorValue(ParamValue value) ;
+    static bool isEntityValue(ParamValue value) ;
+    static bool isFuzzyIntervalIntValue(ParamValue value) ;
+    static bool isFuzzyIntervalFloatValue(ParamValue value) ;
+
     /**
      * Methods for getting the real value of the value attribute.
      * Before calling one of thes methods, the is<Type>Value() method
@@ -288,6 +308,13 @@ public:
     const Entity& getEntityValue() const;
     const FuzzyIntervalInt& getFuzzyIntervalIntValue() const;
     const FuzzyIntervalFloat& getFuzzyIntervalFloatValue() const;
+
+    static const string& getStringValue(ParamValue value) ;
+    static const Rotation& getRotationValue(ParamValue value) ;
+    static const Vector& getVectorValue(ParamValue value) ;
+    static const Entity& getEntityValue(ParamValue value) ;
+    static const FuzzyIntervalInt& getFuzzyIntervalIntValue(ParamValue value) ;
+    static const FuzzyIntervalFloat& getFuzzyIntervalFloatValue(ParamValue value) ;
 
     std::string stringRepresentation() const throw (opencog::RuntimeException, std::bad_exception);
     std::string static ParamValueToString(const ParamValue& paramVal);

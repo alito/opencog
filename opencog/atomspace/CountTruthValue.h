@@ -28,29 +28,24 @@
 #define _OPENCOG_COUNT_TRUTH_VALUE_H_
 
 #include <opencog/atomspace/TruthValue.h>
-#ifdef ZMQ_EXPERIMENT
-#include "ProtocolBufferSerializer.h"
-#endif
 
 namespace opencog
 {
+/** \addtogroup grp_atomspace
+ *  @{
+ */
 
+class CountTruthValue;
+typedef std::shared_ptr<CountTruthValue> CountTruthValuePtr;
+
+//! a TruthValue that stores a mean, a confidence and the number of observations
 class CountTruthValue : public TruthValue
 {
-#ifdef ZMQ_EXPERIMENT
-    friend class ProtocolBufferSerializer;
-
-private:
-    CountTruthValue() {};
-#endif
-
 protected:
 
     strength_t mean;
     confidence_t confidence;
     count_t count;
-
-    void init(strength_t, confidence_t, count_t);
 
 public:
 
@@ -58,29 +53,34 @@ public:
     CountTruthValue(const TruthValue&);
     CountTruthValue(CountTruthValue const&);
 
-    CountTruthValue* clone() const;
-    CountTruthValue& operator=(const TruthValue& rhs)
-        throw (RuntimeException);
-
     virtual bool operator==(const TruthValue& rhs) const;
 
-    static CountTruthValue* fromString(const char*);
-
-    float toFloat() const;
     std::string toString() const;
     TruthValueType getType() const;
 
     strength_t getMean() const;
     count_t getCount() const;
     confidence_t getConfidence() const;
-    void setMean(strength_t);
-    void setCount(count_t);
-    void setConfidence(confidence_t);
 
-    virtual TruthValue* merge(const TruthValue&) const;
+    virtual TruthValuePtr merge(TruthValuePtr) const;
 
+    static TruthValuePtr createTV(strength_t s, confidence_t f, count_t c)
+    {
+        return std::static_pointer_cast<TruthValue>(
+            std::make_shared<CountTruthValue>(s, f, c));
+    }
+
+    TruthValuePtr clone() const
+    {
+        return std::make_shared<CountTruthValue>(*this);
+    }
+    TruthValue* rawclone() const
+    {
+        return new CountTruthValue(*this);
+    }
 };
 
+/** @}*/
 } // namespace opencog
 
 #endif // _OPENCOG_COUNT_TRUTH_VALUE_H_

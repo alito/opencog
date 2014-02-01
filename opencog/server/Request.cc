@@ -29,22 +29,30 @@
 
 using namespace opencog;
 
-Request::Request() : _requestResult(NULL), _mimeType("text/plain") {
-//    cleanUp(true), complete(false) {
+Request::Request(CogServer& cs) :
+    _cogserver(cs), _requestResult(NULL), _mimeType("text/plain")
+{
 }
 
 Request::~Request()
 {
     logger().debug("[Request] destructor");
-    if (_requestResult) _requestResult->OnRequestComplete();
+    if (_requestResult) {
+        _requestResult->OnRequestComplete();
+        _requestResult->put();  // dec use count we are done with it.
+    }
 }
 
 void Request::setRequestResult(RequestResult* rr)
 {
     logger().debug("[Request] setting requestResult: %p", rr);
     if (NULL == _requestResult) {
+        rr->get();  // inc use count -- we plan to use the req res
         _requestResult = rr;
         _mimeType = _requestResult->mimeType();
+    } else if (NULL == rr) {
+        if (_requestResult) _requestResult->put();  // dec use count we are doe with it.
+        _requestResult = NULL;  // used by exit/quit commands to not send any result.
     } else
         throw RuntimeException(TRACE_INFO,
             "Bad idea to try to set the RequestResult more than once.");

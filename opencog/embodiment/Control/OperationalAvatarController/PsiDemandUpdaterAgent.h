@@ -179,17 +179,19 @@ private:
     /**
      * Send updated values to the virtual world where the pet lives
      */
-    void sendUpdatedValues(opencog::CogServer * server); 
+    void sendUpdatedValues(); 
 
 
     // Initialize demandList etc.
-    void init(opencog::CogServer * server);
+    void init();
 
     bool bInitialized; 
 
+    bool hasPsiDemandUpdaterForTheFirstTime;
+
 public:
 
-    PsiDemandUpdaterAgent();
+    PsiDemandUpdaterAgent(CogServer&);
     virtual ~PsiDemandUpdaterAgent();
 
     virtual const ClassInfo& classinfo() const {
@@ -202,7 +204,7 @@ public:
     }
 
     // Entry of the Agent, CogServer will invoke this function during its cycle
-    void run(opencog::CogServer * server);
+    virtual void run();
 
     // After calling this function, the Agent will invoke its "init" method firstly 
     // in "run" function during its next cycle
@@ -212,7 +214,12 @@ public:
 
     double getDemandValue(string demanName) const;
 
+    bool getHasPsiDemandUpdaterForTheFirstTime() const {return hasPsiDemandUpdaterForTheFirstTime;}
+
+
 }; // class
+
+typedef std::shared_ptr<PsiDemandUpdaterAgent> PsiDemandUpdaterAgentPtr;
 
 } } // namespace opencog::oac
 

@@ -68,6 +68,7 @@
 #include "PsiRelationUpdaterAgent.h"
 #include "PsiFeelingUpdaterAgent.h"
 #include "StimulusUpdaterAgent.h"
+#include "OCPlanningAgent.h"
 
 
 #ifdef HAVE_CYTHON
@@ -77,23 +78,9 @@
 class PsiModulatorUpdaterAgentUTest; 
 class PsiDemandUpdaterAgentUTest;
 class PsiFeelingUpdaterAgentUTest; 
-class PsiActionSelectionAgentUTest; 
+class PsiActionSelectionAgentUTest;
 
 namespace opencog { namespace oac {
-
-/* Defines a single factory template to allow insert a same agent
- * multiple times in the Cogserver schedule */
-template< typename _Type, typename _BaseType >
-class SingletonFactory : public Factory<_Type, _BaseType>
-{
-public:
-    explicit SingletonFactory() : Factory<_Type, _BaseType>() {}
-    virtual ~SingletonFactory() {}
-    virtual _BaseType* create() const {
-        static _BaseType* inst =  new _Type;
-        return inst;
-    }
-};
 
 class OAC : public opencog::messaging::MessageCogServer
 {
@@ -164,28 +151,32 @@ private:
     PredicatesUpdater * predicatesUpdater;
 
     /** opencog Agents */
-    ProcedureInterpreterAgent* procedureInterpreterAgent;
-//    ImportanceDecayAgent* importanceDecayAgent;
-//    EntityExperienceAgent* entityExperienceAgent;
+    ProcedureInterpreterAgentPtr procedureInterpreterAgent;
+//    ImportanceDecayAgentPtr importanceDecayAgent;
+//    EntityExperienceAgentPtr entityExperienceAgent;
 
-    PsiModulatorUpdaterAgent * psiModulatorUpdaterAgent;
-    PsiDemandUpdaterAgent * psiDemandUpdaterAgent;
-    PsiActionSelectionAgent * psiActionSelectionAgent;
-    PsiRelationUpdaterAgent * psiRelationUpdaterAgent; 
-    PsiFeelingUpdaterAgent * psiFeelingUpdaterAgent; 
+    PsiModulatorUpdaterAgentPtr psiModulatorUpdaterAgent;
+    PsiDemandUpdaterAgentPtr psiDemandUpdaterAgent;
+    PsiActionSelectionAgentPtr psiActionSelectionAgent;
+    PsiRelationUpdaterAgentPtr psiRelationUpdaterAgent; 
+    PsiFeelingUpdaterAgentPtr psiFeelingUpdaterAgent; 
 
-    StimulusUpdaterAgent * stimulusUpdaterAgent;
+    OCPlanningAgentPtr ocPlanningAgent;
 
-    ForgettingAgent * forgettingAgent; 
-    HebbianUpdatingAgent * hebbianUpdatingAgent; 
-//    ImportanceDiffusionAgent * importanceDiffusionAgent; 
-    ImportanceSpreadingAgent * importanceSpreadingAgent; 
-    ImportanceUpdatingAgent * importanceUpdatingAgent; 
-    STIDecayingAgent * stiDecayingAgent; 
+
+
+    StimulusUpdaterAgentPtr stimulusUpdaterAgent;
+
+    ForgettingAgentPtr forgettingAgent; 
+    HebbianUpdatingAgentPtr hebbianUpdatingAgent; 
+//    ImportanceDiffusionAgentPtr importanceDiffusionAgent; 
+    ImportanceSpreadingAgentPtr importanceSpreadingAgent; 
+    ImportanceUpdatingAgentPtr importanceUpdatingAgent; 
+    STIDecayingAgentPtr stiDecayingAgent; 
 
 #ifdef HAVE_CYTHON
-    PyMindAgent * fishgramAgent; 
-    PyMindAgent * monitorChangesAgent; 
+    PyMindAgentPtr fishgramAgent; 
+    PyMindAgentPtr monitorChangesAgent; 
 #endif    
 
     /**
@@ -286,11 +277,11 @@ public:
 #endif // HAVE_ZMQ
 
 
-    const PsiModulatorUpdaterAgent * getPsiModulatorUpdaterAgent() {return psiModulatorUpdaterAgent; }
-    const PsiDemandUpdaterAgent * getPsiDemandUpdaterAgent() {return psiDemandUpdaterAgent; }
-    const PsiActionSelectionAgent * getPsiActionSelectionAgent() {return psiActionSelectionAgent ; }
-    const PsiRelationUpdaterAgent * getPsiRelationUpdaterAgent() {return psiRelationUpdaterAgent; }
-    const PsiFeelingUpdaterAgent * getPsiFeelingUpdaterAgent() {return psiFeelingUpdaterAgent; }
+    const PsiModulatorUpdaterAgentPtr getPsiModulatorUpdaterAgent() {return psiModulatorUpdaterAgent; }
+    const PsiDemandUpdaterAgentPtr getPsiDemandUpdaterAgent() {return psiDemandUpdaterAgent; }
+    const PsiActionSelectionAgentPtr getPsiActionSelectionAgent() {return psiActionSelectionAgent ; }
+    const PsiRelationUpdaterAgentPtr getPsiRelationUpdaterAgent() {return psiRelationUpdaterAgent; }
+    const PsiFeelingUpdaterAgentPtr getPsiFeelingUpdaterAgent() {return psiFeelingUpdaterAgent; }
 
     /* Get the Procedure Interpreter associated with the OAC.
      *
@@ -352,6 +343,8 @@ public:
     SingletonFactory <PsiActionSelectionAgent, Agent> psiActionSelectionAgentFactory;
     SingletonFactory <PsiRelationUpdaterAgent, Agent> psiRelationUpdaterAgentFactory; 
     SingletonFactory <PsiFeelingUpdaterAgent, Agent> psiFeelingUpdaterAgentFactory; 
+
+    SingletonFactory <OCPlanningAgent, Agent> ocPlanningAgentAgentFactory;
 
     SingletonFactory <StimulusUpdaterAgent, Agent> stimulusUpdaterAgentFactory; 
 

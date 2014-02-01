@@ -107,7 +107,7 @@ throw (ComboException, AssertionException, std::bad_exception)
     _hasPlanFailed = false;
     planID = pai.createActionPlan();
 
-    const AtomSpace& as = pai.getAtomSpace();
+    AtomSpace& as = pai.getAtomSpace();
     const SpaceServer::SpaceMap& sm = spaceServer().getLatestMap();
     // treat the case when the action is a compound
     if (WorldWrapperUtil::is_builtin_compound_action(*from)) {
@@ -598,21 +598,24 @@ void PAIWorldWrapper::getWaypoints( const spatial::Point& startPoint,
 }
 */
 
-void PAIWorldWrapper::get3DWaypoints( const SpaceServer::SpaceMapPoint& startPoint,
-        const SpaceServer::SpaceMapPoint& endPoint, std::vector<SpaceServer::SpaceMapPoint>& actions,SpaceServer::SpaceMap& sm )
-{
-    if (spatial::Pathfinder3D::AStar3DPathFinder(&sm,startPoint,endPoint,actions))
-    {
-        printf("Pathfinding successfully! From (%d,%d,%d) to (%d, %d, %d)",
-               startPoint.x,startPoint.y,startPoint.z,endPoint.x, endPoint.y,endPoint.z);
-    }
-    else
-    {
-        printf("Pathfinding failed! From (%d,%d,%d) to (%d, %d, %d)",
-               startPoint.x,startPoint.y,startPoint.z,endPoint.x, endPoint.y,endPoint.z);
-    }
 
-}
+//void PAIWorldWrapper::get3DWaypoints( const SpaceServer::SpaceMapPoint& startPoint,
+//        const SpaceServer::SpaceMapPoint& endPoint, std::vector<SpaceServer::SpaceMapPoint>& actions,SpaceServer::SpaceMap& sm )
+//{
+//    SpaceServer::SpaceMapPoint nearestPos;
+//    if (spatial::Pathfinder3D::AStar3DPathFinder(&sm,startPoint,endPoint,actions,nearestPos))
+//    {
+//        printf("Pathfinding successfully! From (%d,%d,%d) to (%d, %d, %d)",
+//               startPoint.x,startPoint.y,startPoint.z,endPoint.x, endPoint.y,endPoint.z);
+//    }
+//    else
+//    {
+//        printf("Pathfinding failed! From (%d,%d,%d) to (%d, %d, %d), the nearest accessable postion is (%d,%d,%d)",
+//               startPoint.x,startPoint.y,startPoint.z,endPoint.x, endPoint.y,endPoint.z,nearestPos.x,nearestPos.y,nearestPos.z);
+//    }
+
+//}
+
 
 /*
 bool PAIWorldWrapper::createWalkPlanAction( std::vector<spatial::Point>& actions, bool useExistingId, Handle toNudge, float customSpeed )
@@ -668,8 +671,22 @@ bool PAIWorldWrapper::createWalkPlanAction( std::vector<spatial::Point>& actions
     return true;
 }
 */
-bool PAIWorldWrapper::createNavigationPlanAction( std::vector<SpaceServer::SpaceMapPoint>& actions, bool useExistingId, Handle toNudge, float customSpeed )
+bool PAIWorldWrapper::createNavigationPlanAction( opencog::pai::PAI& pai,SpaceServer::SpaceMap& sm,const SpaceServer::SpaceMapPoint& startPoint,
+                                                  const SpaceServer::SpaceMapPoint& endPoint, opencog::pai::ActionPlanID _planID, bool includingLastStep, float customSpeed )
 {
+    std::vector<SpaceServer::SpaceMapPoint> actions;
+
+    SpaceServer::SpaceMapPoint nearestPos,bestPos;
+    if (spatial::Pathfinder3D::AStar3DPathFinder(&sm,startPoint,endPoint,actions,nearestPos,bestPos,false,false,true))
+    {
+        printf("Pathfinding successfully! From (%d,%d,%d) to (%d, %d, %d)",
+               startPoint.x,startPoint.y,startPoint.z,endPoint.x, endPoint.y,endPoint.z);
+    }
+    else
+    {
+        printf("Pathfinding failed! From (%d,%d,%d) to (%d, %d, %d), the nearest accessable postion is (%d,%d,%d)",
+               startPoint.x,startPoint.y,startPoint.z,endPoint.x, endPoint.y,endPoint.z,nearestPos.x,nearestPos.y,nearestPos.z);
+    }
 
     // the first pos in actions vector is the begin pos, so there should be at least 2 elements in this vector
     if ( actions.size() < 2 ) {
@@ -682,16 +699,21 @@ bool PAIWorldWrapper::createNavigationPlanAction( std::vector<SpaceServer::Space
     // transform to a sequence of navigation commands
     // --------------------------------------------------------------------
 
-    if (!useExistingId ) {
-        planID = pai.createActionPlan( );
+    if (_planID == "" ) {
+        _planID = pai.createActionPlan( );
     } // if
-    vector<SpaceServer::SpaceMapPoint>::iterator it_point = actions.begin();
+    vector<SpaceServer::SpaceMapPoint>::iterator it_point,endPointIter;
+    it_point = actions.begin();
     it_point ++;
+
+    // get the endPoint
+    endPointIter = actions.end();
+    endPointIter --;
 
     while (it_point != actions.end()) {
         PetAction action;
 
-        // Now in Unity, we consider jump up one block as normal walking action:
+        // Now in Unity, we consider jump/climb up one block as normal walking action:
 
         // The agent need to jump when this pos is higher than last pos
         if (((SpaceServer::SpaceMapPoint)(*(it_point))).z > ((SpaceServer::SpaceMapPoint)(*(it_point-1))).z )
@@ -720,8 +742,11 @@ bool PAIWorldWrapper::createNavigationPlanAction( std::vector<SpaceServer::Space
                     lexical_cast<string>( speed) ) );
 
         }
-        pai.addAction( planID, action );
+        pai.addAction( _planID, action );
         it_point++;
+
+        if ((!includingLastStep) && (it_point == endPointIter))
+            break;
     } // while
 
     return true;
@@ -730,7 +755,7 @@ bool PAIWorldWrapper::createNavigationPlanAction( std::vector<SpaceServer::Space
 bool PAIWorldWrapper::build_goto_plan(Handle goalHandle,
                                       Handle goBehind, float walkSpeed )
 {
-    const AtomSpace& atomSpace = pai.getAtomSpace();
+    AtomSpace& atomSpace = pai.getAtomSpace();
     const SpaceServer::SpaceMap& spaceMap = spaceServer().getLatestMap();
     std::string goalName = atomSpace.getName(goalHandle);
 
@@ -789,12 +814,12 @@ bool PAIWorldWrapper::build_goto_plan(Handle goalHandle,
     {
         std::vector<SpaceServer::SpaceMapPoint> actions;
 
-        get3DWaypoints( startPoint, endPoint, actions ,(SpaceServer::SpaceMap&)spaceMap);
 
         float speed = ( walkSpeed != 0 ) ?
                 walkSpeed : pai.getAvatarInterface().computeWalkingSpeed();
 
-        return createNavigationPlanAction( actions, false, Handle::UNDEFINED, speed );
+        return createNavigationPlanAction(  pai, (SpaceServer::SpaceMap&)spaceMap,startPoint,
+                                           endPoint, planID, speed );
 
     }
 

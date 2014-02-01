@@ -41,11 +41,6 @@ void Mihalcea::set_atom_space(AtomSpace *as)
 	edger.set_atom_space(as);
 	thinner.set_atom_space(as);
 	sweeper.set_atom_space(as);
-    sense_ranker.set_atom_space(as);
-    reporter.set_atom_space(as);
-    parse_ranker.set_atom_space(as);
-    nn_adjuster.set_atom_space(as);
-    
 }
 
 bool Mihalcea::process_sentence(Handle h)
@@ -134,7 +129,7 @@ bool Mihalcea::process_sentence(Handle h)
 bool Mihalcea::process_sentence_list(Handle h)
 {
 	short_list.clear();
-	foreach_outgoing_handle(h, &Mihalcea::process_sentence, this);
+	foreach_outgoing_handle(LinkCast(h), &Mihalcea::process_sentence, this);
 
 	// Solve the page-rank equations for the whole set of sentences.
 	// sense_ranker.rank_document(parse_list);

@@ -26,17 +26,17 @@
 #include <unordered_map>
 #include <vector>
 
-#include <stdlib.h>
-
-#include <boost/signal.hpp>
-#include <boost/thread.hpp>
+#include <boost/signals2.hpp>
+#include <boost/thread/shared_mutex.hpp>
 
 #include <opencog/atomspace/types.h>
 #include <opencog/atomspace/atom_types.h>
-#include <opencog/util/platform.h>
 
 namespace opencog
 {
+/** \addtogroup grp_atomspace
+ *  @{
+ */
 
 class ClassServer; 
 
@@ -47,6 +47,7 @@ typedef ClassServer* ClassServerFactory(void);
  * The current implementation is hardwired. Future versions may include
  * different structures based on run-time type identification.
  */
+typedef boost::signals2::signal<void (Type)> TypeSignal;
 class ClassServer
 {
 private:
@@ -54,7 +55,9 @@ private:
     /** Private default constructor for this class to make it a singleton. */
     ClassServer();
 
-    mutable boost::mutex type_mutex;
+    /* Use boost, because we need a reader-writer implementation, which
+     * is not offered by C++11 ... but expected in C++14 ?? */
+    mutable boost::shared_mutex type_mutex;
     mutable boost::mutex signal_mutex;
 
     Type nTypes;
@@ -63,7 +66,7 @@ private:
     std::vector< std::vector<bool> > recursiveMap;
     std::unordered_map<std::string, Type> name2CodeMap;
     std::unordered_map<Type, const std::string*> code2NameMap;
-    boost::signal<void (Type)> _addTypeSignal;
+    TypeSignal _addTypeSignal;
 
     void setParentRecursively(Type parent, Type type);
 
@@ -74,11 +77,11 @@ public:
     /** Adds a new atom type with the given name and parent type */
     Type addType(Type parent, const std::string& name);
 
-    /** Gets the boost::signal for connecting to add type signals
+    /** Provides ability to get type-added signals.
      * @warning methods connected to this signal must not call ClassServer::addType or
      * things will deadlock.
      */
-    boost::signal<void (Type)>& addTypeSignal();
+    TypeSignal& addTypeSignal();
 
     /**
      * Stores the children types on the OutputIterator 'result'. Returns the
@@ -119,18 +122,38 @@ public:
 
     /**
      * Returns whether a given class is assignable from another.
+     * This is the single-most commonly called method in this class.
      *
-     * @param Super class.
-     * @param Subclass.
+     * @param super Super class.
+     * @param sub Subclass.
      * @return Whether a given class is assignable from another.
      */
-    bool isA(Type sub, Type super);
+    bool isA(Type sub, Type super)
+    {
+        /* Because this metod is called extremely often, we want
+         * the best-case fast-path for it.  Since updates are extremely
+         * unlikely after initialization, we use a multi-reader lock,
+         * and don't care at all about writer starvation, since there
+         * will almost never be writers. */
+        boost::shared_lock<boost::shared_mutex> l(type_mutex);
+        if ((sub >= nTypes) || (super >= nTypes)) return false;
+        return recursiveMap[super][sub];
+    }
+
     bool isA_non_recursive(Type sub, Type super);
+
+    /**
+     * Returns true if given class is a valid atom type.
+     *
+     * @param t class.
+     * @return Whether a given class is valid.
+     */
+    bool isValid(Type t) { return isA(t, ATOM); }
 
     /**
      * Returns true if given class is a Link.
      *
-     * @param class.
+     * @param t class.
      * @return Whether a given class is Link.
      */
     bool isLink(Type t) { return isA(t, LINK); }
@@ -138,7 +161,7 @@ public:
     /**
      * Returns true if given class is a Node.
      *
-     * @param class.
+     * @param t class.
      * @return Whether a given class is Node.
      */
     bool isNode(Type t) { return isA(t, NODE); }
@@ -151,7 +174,7 @@ public:
     /**
      * Returns the type of a given class.
      *
-     * @param Class type name.
+     * @param typeName Class type name.
      * @return The type of a givenn class.
      */
     Type getType(const std::string& typeName);
@@ -159,7 +182,7 @@ public:
     /**
      * Returns the string representation of a given atom type.
      *
-     * @param Atom type code.
+     * @param type Atom type code.
      * @return The string representation of a givenn class.
      */
     const std::string& getTypeName(Type type);
@@ -168,6 +191,7 @@ public:
 /** Gets the singleton instance (following meyer's design pattern) */
 ClassServer& classserver(ClassServerFactory* = ClassServer::createInstance);
 
+/** @}*/
 } // namespace opencog
 
 #endif // _OPENCOG_CLASS_SERVER_H

@@ -54,8 +54,10 @@ static const string pre="pre";  // Precision (see
 struct feature_selection_parameters
 {
     // avoid utter insanity by providing some reasonable values.
-    feature_selection_parameters() : algorithm(simple), scorer(mi),
-        target_size(1), threshold(0.0), jobs(1),
+    feature_selection_parameters() :
+        algorithm(simple), scorer(mi),
+        target_size(1), exp_distrib(false), threshold(0.0),
+        jobs(1),
         inc_target_size_epsilon(1.0e-10),
         inc_red_intensity(-1.0),
         inc_interaction_terms(1),
@@ -65,6 +67,10 @@ struct feature_selection_parameters
         hc_max_score(1.0e50),
         hc_cache_size(1000),
         hc_fraction_of_remaining(1.0),
+        hc_crossover(true),
+        hc_crossover_pop_size(300),
+        hc_crossover_min_neighbors(1000),
+        hc_widen_search(true),
         mi_confi(50.0)
     {}
 
@@ -77,6 +83,7 @@ struct feature_selection_parameters
     std::vector<std::string> initial_features;
     std::string output_file;
     unsigned target_size;
+    bool exp_distrib;
     double threshold;
     unsigned jobs;
 
@@ -101,6 +108,7 @@ struct feature_selection_parameters
     double hc_fraction_of_remaining;
     bool hc_crossover;
     unsigned hc_crossover_pop_size;
+    unsigned hc_crossover_min_neighbors;
     bool hc_widen_search;
 
     // MI scorer parameters
@@ -160,7 +168,7 @@ struct fs_scorer : public unary_function<FeatureSet, double>
         } else if (fs_params.scorer == pre) { // precision (see
             // opencog/learning/moses/scoring/scoring.h)
             _ptr_pre_scorer =
-                new pre_scorer<FeatureSet>(ctable,
+                new pre_scorer<FeatureSet>(ctable, fs_params.mi_confi,
                                            fs_params.pre_penalty,
                                            fs_params.pre_min_activation,
                                            fs_params.pre_max_activation,

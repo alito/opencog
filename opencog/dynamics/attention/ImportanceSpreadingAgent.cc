@@ -26,31 +26,35 @@
 #include <opencog/atomspace/Link.h>
 #include <opencog/dynamics/attention/atom_types.h>
 #include <opencog/server/CogServer.h>
-#include <opencog/util/platform.h>
 #include <opencog/util/Config.h>
+#include <opencog/util/platform.h>
+#include <opencog/util/foreach.h>
 
 using namespace opencog;
 
-ImportanceSpreadingAgent::ImportanceSpreadingAgent()
+ImportanceSpreadingAgent::ImportanceSpreadingAgent(CogServer& cs) :
+    Agent(cs)
 {
     static const std::string defaultConfig[] = {
         "ECAN_DEFAULT_SPREAD_THRESHOLD","0",
         "ECAN_DEFAULT_SPREAD_MULTIPLIER","10.0",
+        "ECAN_ALL_LINKS_SPREAD","false",
         "", ""
     };
     setParameters(defaultConfig);
 
     spreadThreshold = (float) (config().get_double
                                ("ECAN_DEFAULT_SPREAD_THRESHOLD"));
+    allLinksSpread = config().get_bool("ECAN_ALL_LINKS_SPREAD");
 }
 
 ImportanceSpreadingAgent::~ImportanceSpreadingAgent()
 {
 }
 
-void ImportanceSpreadingAgent::run(CogServer* server)
+void ImportanceSpreadingAgent::run()
 {
-    a = &server->getAtomSpace();
+    a = &_cogserver.getAtomSpace();
     spreadImportance();
 }
 
@@ -63,7 +67,7 @@ void ImportanceSpreadingAgent::spreadImportance()
     std::vector<Handle>::iterator hi;
     std::back_insert_iterator< std::vector<Handle> > out_hi(atoms);
 
-    a->getHandleSet(out_hi, NODE, true);
+    a->getHandlesByType(out_hi, NODE, true);
     logger().fine("---------- Spreading importance for atoms with threshold above %d", spreadThreshold);
 
     hi = atoms.begin();
@@ -93,6 +97,7 @@ int ImportanceSpreadingAgent::sumTotalDifference(Handle source, HandleSeq& links
     return totalDifference;
 }
 
+#define toFloat getMean
 // For one link
 int ImportanceSpreadingAgent::sumDifference(Handle source, Handle link)
 {
@@ -179,9 +184,12 @@ void ImportanceSpreadingAgent::spreadAtomImportance(Handle h)
 
     linksVector = a->getIncoming(h);
     IsHebbianLink isHLPred(a);
-    std::remove_if(linksVector.begin(),linksVector.end(),isHLPred);
-
-    logger().fine("  +Hebbian links found %d", linksVector.size());
+    if (allLinksSpread) {
+        logger().fine("  +Spreading across all links. Found %d", linksVector.size());
+    } else {
+      std::remove_if(linksVector.begin(),linksVector.end(),isHLPred);
+      logger().fine("  +Hebbian links found %d", linksVector.size());
+    }
 
     totalDifference = static_cast<float>(sumTotalDifference(h, linksVector));
     sourceSTI = a->getSTI(h);

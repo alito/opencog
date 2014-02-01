@@ -8,11 +8,11 @@ INCLUDE_DIRECTORIES(${CMAKE_BINARY_DIR})
 #
 ADD_SUBDIRECTORY (util)
 ADD_SUBDIRECTORY (comboreduct)
-ADD_SUBDIRECTORY (reasoning)
 ADD_SUBDIRECTORY (learning)
 
 IF (HAVE_ATOMSPACE)
     ADD_SUBDIRECTORY (atomspace)
+    ADD_SUBDIRECTORY (execution)
     ADD_SUBDIRECTORY (benchmark)
     ADD_SUBDIRECTORY (query)
     ADD_SUBDIRECTORY (nlp)
@@ -27,24 +27,16 @@ IF (HAVE_SERVER)
     ADD_SUBDIRECTORY (server)
 ENDIF(HAVE_SERVER)
 
-IF (HAVE_WEB)
-    ADD_SUBDIRECTORY (web)
-ENDIF (HAVE_WEB)
-
-# There is nothing in this directory?
-#IF (NOT WIN32)
-#ADD_SUBDIRECTORY(modules)
-#ENDIF (NOT WIN32)
-
 # Extension language support
-IF (HAVE_GUILE)
+IF (HAVE_ATOMSPACE AND HAVE_GUILE)
 	ADD_SUBDIRECTORY (guile)
 	ADD_SUBDIRECTORY (scm)
 	ADD_SUBDIRECTORY (shell)
-ENDIF (HAVE_GUILE)
+ENDIF (HAVE_ATOMSPACE AND HAVE_GUILE)
 
 IF (HAVE_VITERBI)
-    ADD_SUBDIRECTORY (viterbi)
+	# Disable until new interfaces widely available. -- linas
+	# ADD_SUBDIRECTORY (viterbi)
 ENDIF (HAVE_VITERBI)
 
 IF (HAVE_CYTHON)
@@ -61,9 +53,4 @@ IF (HAVE_EMBODIMENT)
 ENDIF (HAVE_EMBODIMENT)
 
 # Graphics and visualization subsystems
-IF (HAVE_SERVER)
-   ADD_SUBDIRECTORY (dotty)
-   IF (HAVE_UBIGRAPH)
-      ADD_SUBDIRECTORY (ubigraph)
-   ENDIF (HAVE_UBIGRAPH)
-ENDIF (HAVE_SERVER)
+ADD_SUBDIRECTORY (visualization)

@@ -23,18 +23,23 @@
 #ifndef _COVER_TREE_H
 #define _COVER_TREE_H
 
-#include <vector>
+#include <float.h>
+
 #include <algorithm>
+#include <cmath>
+#include <iostream>
 #include <map>
 #include <set>
-#include <cmath>
-#include <float.h>
-#include <iostream>
+#include <utility>
+#include <vector>
 
+/** \addtogroup grp_cogutil
+ *  @{
+ */
+
+//! Cover Tree. Allows for insertion, removal, and k-nearest-neighbor queries.
 /**
  * https://github.com/DNCrane/Cover-Tree
- * Cover Tree. Allows for insertion, removal, and k-nearest-neighbor
- * queries.
  *
  * The user should define double Point::distance(const Point& p) and
  * bool Point::operator==(const Point& p), where
@@ -43,6 +48,46 @@
  * For example, a point could consist of a vector and a string
  * name, where their distance measure is simply euclidean distance but to be
  * equal they must have the same name in addition to having distance 0.
+ *
+ * This is a C++ implementation of the cover tree datastructure. Implements the
+ * cover tree algorithms for insert, removal, and k-nearest-neighbor search.
+ *
+ * Relevant links:
+ * - <a href="https://secure.wikimedia.org/wikipedia/en/wiki/Cover_tree">Wikipedia's page</a>
+ * on cover trees.
+ * - John Langford's (one of the inventors of cover trees)
+ * <a href="http://hunch.net/~jl/projects/cover_tree/cover_tree.html">page</a>
+ * on cover trees with links to papers.
+ *
+ * To use the Cover Tree, you must implement your own Point class. CoverTreePoint
+ * is provided for testing and as an example. Your Point class must implement the
+ * following functions:
+ *
+ * @code
+ * double YourPoint::distance(const YourPoint& p);
+ * bool YourPoint::operator==(const YourPoint& p);
+ * and optionally (for debugging/printing only):
+ * void YourPoint::print();
+ * @endcode
+ *
+ * The distance function must be a Metric, meaning (from Wikipedia):
+ * 1: d(x, y) = 0   if and only if   x = y
+ * 2: d(x, y) = d(y, x)     (symmetry)
+ * 3: d(x, z) =< d(x, y) + d(y, z)     (subadditivity / triangle inequality).
+ *
+ * See https://secure.wikimedia.org/wikipedia/en/wiki/Metric_%28mathematics%29
+ * for details.
+ *
+ * Actually, 1 does not exactly need to hold for this implementation; you can
+ * provide, for example, names for your points which are unrelated to distance
+ * but important for equality. You can insert multiple points with distance 0 to
+ * each other and the tree will keep track of them, but you cannot insert multiple
+ * points that are equal to each other; attempting to insert a point that
+ * already exists in the tree will not alter the tree at all.
+ *
+ * If you do not want to allow multiple nodes with distance 0, then just make
+ * your equality operator always return true when distance is 0.
+ *
  */
 template<class Point>
 class CoverTree
@@ -218,8 +263,8 @@ CoverTree<Point>::kNearestNodes(const Point& p, const unsigned int& k) const
     //minNodes stores the k nearest known points to p.
     std::set<distNodePair> minNodes;
 
-    minNodes.insert(make_pair(maxDist,_root));
-    std::vector<distNodePair> Qj(1,make_pair(maxDist,_root));
+    minNodes.insert(std::make_pair(maxDist,_root));
+    std::vector<distNodePair> Qj(1,std::make_pair(maxDist,_root));
     for(int level = _maxLevel; level>=_minLevel;level--) {
         typename std::vector<distNodePair>::const_iterator it;
         int size = Qj.size();
@@ -230,13 +275,13 @@ CoverTree<Point>::kNearestNodes(const Point& p, const unsigned int& k) const
             for(it2=children.begin(); it2!=children.end(); ++it2) {
                 double d = p.distance((*it2)->getPoint());
                 if(d < maxDist || minNodes.size() < k) {
-                    minNodes.insert(make_pair(d,*it2));
+                    minNodes.insert(std::make_pair(d,*it2));
                     //--minNodes.end() gives us an iterator to the greatest
                     //element of minNodes.
                     if(minNodes.size() > k) minNodes.erase(--minNodes.end());
                     maxDist = (--minNodes.end())->first;
                 }
-                Qj.push_back(make_pair(d,*it2));
+                Qj.push_back(std::make_pair(d,*it2));
             }
         }
         double sep = maxDist + pow(base, level);
@@ -277,7 +322,7 @@ bool CoverTree<Point>::insert_rec(const Point& p,
             double d = p.distance((*it2)->getPoint());
             if(d<minDist) minDist = d;
             if(d<=sep) {
-                Qj.push_back(make_pair(d,*it2));
+                Qj.push_back(std::make_pair(d,*it2));
             }
         }
     }
@@ -337,7 +382,7 @@ void CoverTree<Point>::remove_rec(const Point& p,
                 if(dist == 0.0) parent = it->second;
             }
             if(dist <= sep) {
-                Qj.push_back(make_pair(dist,*it2));
+                Qj.push_back(std::make_pair(dist,*it2));
             }
         }
     }
@@ -392,7 +437,7 @@ void CoverTree<Point>::remove_rec(const Point& p,
                 }
                 minDQ=DBL_MAX;
                 if(br) break;
-                Q.push_back(make_pair((*it)->distance(p),*it));
+                Q.push_back(std::make_pair((*it)->distance(p),*it));
                 i++;
                 sep = pow(base,i);
             }
@@ -423,7 +468,7 @@ CoverTree<Point>::distance(const Point& p,
             minNode = *it;
         }
     }
-    return make_pair(minDist,minNode);  
+    return std::make_pair(minDist,minNode);  
 }
 
 template<class Point>
@@ -444,7 +489,7 @@ void CoverTree<Point>::insert(const Point& newPoint)
         //distance 0 to newPoint in the cover tree (the previous lines check it)
         insert_rec(newPoint,
                    std::vector<distNodePair>
-                   (1,make_pair(_root->distance(newPoint),_root)),
+                   (1,std::make_pair(_root->distance(newPoint),_root)),
                    _maxLevel);
     }
 }
@@ -478,9 +523,9 @@ void CoverTree<Point>::remove(const Point& p)
         }
     }
     std::map<int, std::vector<distNodePair> > coverSets;
-    coverSets[_maxLevel].push_back(make_pair(_root->distance(p),_root));
+    coverSets[_maxLevel].push_back(std::make_pair(_root->distance(p),_root));
     if(removingRoot)
-        coverSets[_maxLevel].push_back(make_pair(newRoot->distance(p),newRoot));
+        coverSets[_maxLevel].push_back(std::make_pair(newRoot->distance(p),newRoot));
     bool multi = false;
     remove_rec(p,coverSets,_maxLevel,multi);
     if(removingRoot) {
@@ -667,5 +712,7 @@ bool CoverTree<Point>::isValidTree() const {
     }
     return true;
 }
+
+/** @}*/
 #endif // _COVER_TREE_H
  

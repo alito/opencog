@@ -43,6 +43,12 @@ Entity3D::Entity3D(BlockVector _centerPosition, int _width, int _lenght, int _he
     is_obstacle =  _is_obstacle;
 }
 
+Entity3D* Entity3D::clone()
+{
+    Entity3D* clonedEntity = new Entity3D(mCenterPosition,mBoundingBox.size_x,mBoundingBox.size_y,mBoundingBox.size_z,mYaw,mName,mEntityClass,is_obstacle);
+    return clonedEntity;
+}
+
 Entity3D::~Entity3D()
 {
 
@@ -97,4 +103,12 @@ void Entity3D::updateNonBlockEntitySpaceInfo(BlockVector _centerPosition, int _w
     mBoundingBox.nearLeftBottomConer.y = _centerPosition.y - _lenght / 2;
     mBoundingBox.nearLeftBottomConer.z = _centerPosition.z - _height / 2;
     is_obstacle =  _is_obstacle;
+}
+
+void Entity3D::updateNonBlockEntityLocation(BlockVector _centerPosition)
+{
+    mCenterPosition = _centerPosition;
+    mBoundingBox.nearLeftBottomConer.x = _centerPosition.x - mBoundingBox.size_x / 2;
+    mBoundingBox.nearLeftBottomConer.y = _centerPosition.y - mBoundingBox.size_y / 2;
+    mBoundingBox.nearLeftBottomConer.z = _centerPosition.z - mBoundingBox.size_z / 2;
 }

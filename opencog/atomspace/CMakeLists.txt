@@ -14,14 +14,13 @@ ADD_LIBRARY (atomspace SHARED
     atom_types.h
     Atom.cc
     AtomSpace.cc
-    AtomSpaceAsync.cc
     AtomSpaceImpl.cc
     AtomSpaceInit.cc
     AtomTable.cc
     AttentionValue.cc
     AttentionBank.cc
+    BackingStore.cc
     ClassServer.cc
-    CompositeTruthValue.cc
     CountTruthValue.cc
     FixedIntegerIndex.cc
     Handle.cc
@@ -39,32 +38,20 @@ ADD_LIBRARY (atomspace SHARED
     NullTruthValue.cc
     PredicateIndex.cc
     SimpleTruthValue.cc
-    StatisticsMonitor.cc
     StringIndex.cc
     TargetTypeIndex.cc
     TLB.cc
-    Trail.cc
     TruthValue.cc
     TypeIndex.cc
-    VersionHandle.cc
 )
 
 # Without this, parallel make will race and crap up the generated files.
 ADD_DEPENDENCIES(atomspace opencog_atom_types)
 
-SET(ATOMSPACE_LINK_LIBS
+TARGET_LINK_LIBRARIES(atomspace
 	cogutil
 	${GSL_LIBRARIES}
-	${Boost_SIGNALS_LIBRARY}
 	${Boost_THREAD_LIBRARY}
-)
-
-IF (HAVE_ZMQ)
-	SET(ATOMSPACE_LINK_LIBS ${ATOMSPACE_LINK_LIBS} zmq)
-ENDIF (HAVE_ZMQ)
-
-TARGET_LINK_LIBRARIES(atomspace
-	${ATOMSPACE_LINK_LIBS}
 )
 
 IF (CYGWIN)
@@ -78,12 +65,10 @@ ELSE (CYGWIN)
 ENDIF (CYGWIN)
 
 INSTALL (FILES
-    ASRequest.h
     Atom.h
     AtomIndex.h
     AtomSpaceDefinitions.h
     AtomSpace.h
-    AtomSpaceAsync.h
     AtomSpaceImpl.h
     AtomTable.h
     ${CMAKE_CURRENT_BINARY_DIR}/atom_types.h
@@ -91,7 +76,6 @@ INSTALL (FILES
     AttentionBank.h
     BackingStore.h
     ClassServer.h
-    CompositeTruthValue.h
     CountTruthValue.h
     FixedIntegerIndex.h
     FollowLink.h
@@ -115,23 +99,12 @@ INSTALL (FILES
     PredicateEvaluator.h
     PredicateIndex.h
     SimpleTruthValue.h
-    StatisticsMonitor.h
     StringIndex.h
     TargetTypeIndex.h
     TLB.h
-    Trail.h
     TruthValue.h
     TypeIndex.h
-    VersionHandle.h
     types.h
     DESTINATION "include/${PROJECT_NAME}/atomspace"
 )
 
-ADD_EXECUTABLE (atomspace_async
-    atomspace_async_tester
-)
-
-TARGET_LINK_LIBRARIES (atomspace_async
-	atomspace
-	cogutil
-)

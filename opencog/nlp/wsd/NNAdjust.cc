@@ -14,6 +14,7 @@
 #include <stdio.h>
 
 #include <opencog/util/platform.h>
+#include <opencog/atomspace/ClassServer.h>
 #include <opencog/atomspace/SimpleTruthValue.h>
 #include <opencog/nlp/wsd/ForeachWord.h>
 
@@ -74,8 +75,8 @@ bool NNAdjust::adjust_relation(const std::string &relname, Handle first, Handle 
 {
 	if (relname.compare("_nn")) return false;
 #ifdef DEBUG
-	const std::string &fn = as->getName(first);
-	const std::string &sn = as->getName(second);
+	const std::string &fn = NodeCast(first)->getName();
+	const std::string &sn = NodeCast(second)->getName();
 	printf("_nn(%s, %s)\n", fn.c_str(), sn.c_str());
 #endif
 
@@ -123,7 +124,7 @@ bool NNAdjust::sense_of_first_inst(Handle first_word_sense_h,
  *    )
  */
 bool NNAdjust::sense_of_second_inst(Handle second_word_sense_h,
-                                        Handle second_sense_link)
+                                    Handle second_sense_link)
 {
 	// printf("second sense %s!\n", sense->getName().c_str());
 	foreach_incoming_handle(second_sense_link, &NNAdjust::sense_pair, this);
@@ -133,22 +134,22 @@ bool NNAdjust::sense_of_second_inst(Handle second_word_sense_h,
 bool NNAdjust::sense_pair(Handle pair_link)
 {
 	// If this is not a cosense link, skip it.
-    Type t = as->getType(pair_link);
+	Type t = pair_link->getType();
 	if (classserver().isA(t, COSENSE_LINK)) return false;
 
 	// If this link is not linking the first and second sense, skip it.
-	std::vector<Handle> outset = as->getOutgoing(pair_link);
+	std::vector<Handle> outset = LinkCast(pair_link)->getOutgoingSet();
 	if ((first_sense_link != outset[0]) && 
 	    (first_sense_link != outset[1])) return false;
 
 	// If we are here, we've got the link that we want. 
 	// Increase its strength.
-    TruthValuePtr tv = as->getTV(pair_link);
+	TruthValuePtr tv = pair_link->getTruthValue();
 	float strength = tv->getMean() * (float) strength_adjust;
-	SimpleTruthValue stv(strength, 1.0f);
+	TruthValuePtr stv(SimpleTruthValue::createTV(strength,
+		SimpleTruthValue::confidenceToCount(tv->getConfidence())));
 
-	stv.setConfidence(tv->getConfidence());
-	as->setTV(pair_link,stv);
+	pair_link->setTruthValue(stv);
 
 	return false;
 }

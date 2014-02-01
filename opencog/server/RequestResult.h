@@ -25,15 +25,18 @@
 #ifndef _OPENCOG_REQUEST_RESULT_H
 #define _OPENCOG_REQUEST_RESULT_H
 
+#include <condition_variable>
+#include <mutex>
 #include <string>
-#include <tr1/memory>
 
 #include <opencog/server/IHasMimeType.h>
 #include <opencog/server/IRequestComplete.h>
-#include <opencog/shell/GenericShell.h>
 
 namespace opencog
 {
+/** \addtogroup grp_server
+ *  @{
+ */
 
 class Request;
 
@@ -58,7 +61,8 @@ class RequestResult : public IHasMimeType,
 
 public:
 
-    RequestResult(const std::string& mimeType) : IHasMimeType(mimeType) {}
+    RequestResult(const std::string& mimeType)
+       : IHasMimeType(mimeType), _use_count(0) {}
     virtual ~RequestResult() {}
 
     /** SetDataRequest: called when this is assigned to a DataRequest */
@@ -73,8 +77,25 @@ public:
     /** OnRequestComplete: called when a request has finished. */
     virtual void OnRequestComplete() = 0;
 
+    void get() { std::unique_lock<std::mutex> lck(_mtx); _use_count++; }
+    void put() { std::unique_lock<std::mutex> lck(_mtx); _use_count--; _cv.notify_all(); }
+protected:
+
+    // We need the use-count and the condition variables because
+    // somehow the design of either this subsystem, or boost:asio
+    // is broken. Basically, the boost::asio code calls the destructor
+    // for ConsoleSocket while there are still requests outstanding
+    // in another thread.  We have to stall the destructor until all
+    // the in-flight requests are complete; we use the condition 
+    // variable to do this. But really, something somewhere is broken
+    // or mis-designed. Not sure what/where; this code is too complicated.
+    unsigned int _use_count;
+    std::mutex _mtx;
+    std::condition_variable _cv;
+
 }; // class
 
+/** @}*/
 }  // namespace
 
 #endif // _OPENCOG_REQUEST_RESULT_H

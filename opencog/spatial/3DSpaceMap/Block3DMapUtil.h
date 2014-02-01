@@ -11,6 +11,9 @@ using namespace std;
 
 namespace opencog
 {
+/** \addtogroup grp_spatial
+ *  @{
+ */
 
     namespace spatial
     {
@@ -174,6 +177,19 @@ namespace opencog
                 nearLeftBottomConer = BlockVector(_neaLeftBottomPos);
             }
 
+            BlockVector getCenterPoint() const
+            {
+                return BlockVector( (nearLeftBottomConer.x + size_x/2), (nearLeftBottomConer.y + size_y/2), (nearLeftBottomConer.z + size_z/2) );
+            }
+
+            float getRadius() const
+            {
+                if (size!=0)
+                    return size;
+                else
+                    return (size_x + size_y + size_z)/3.0f;
+            }
+
             inline bool operator==(const AxisAlignedBox& other) const
             {
                 if((nearLeftBottomConer == other.nearLeftBottomConer) &&
@@ -237,7 +253,7 @@ namespace opencog
 
             // is this UnitBlock inside this AxisAlignedBox
             // @ point is the nearleftbottom point of the block
-            inline bool isUnitBlockInsideMe(BlockVector& point) const
+            inline bool isUnitBlockInsideMe(const BlockVector& point) const
             {
 
                 if ((point.x >= nearLeftBottomConer.x) &&
@@ -255,7 +271,7 @@ namespace opencog
             }
 
             // is other AxisAlignedBox insidAxisAlignedBoxAxisAlignedBox
-            inline bool isInsideMe(AxisAlignedBox& other)
+            inline bool isInsideMe(const AxisAlignedBox& other)
             {
                 if ((other.nearLeftBottomConer.x >= nearLeftBottomConer.x) &&
                     (other.nearLeftBottomConer.y >= nearLeftBottomConer.y) &&
@@ -431,6 +447,7 @@ namespace opencog
         };
 
     }
+/** @}*/
 }
 
 

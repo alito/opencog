@@ -207,6 +207,24 @@ int main(int argc, char** argv)
          "specifies the number of features to be selected out of "
          "the dataset.  A value of 0 disables this option. \n")
 
+        ("exp-distrib",
+         value<bool>(&fs_params.exp_distrib)->default_value(false),
+         "Use a smoth exponential distribution, instead of hard "
+         "cuttoff, when selecting the highest-scoring features.  "
+         "Without this option, the highest-scoring count=N features "
+         "will be selected. That is, the distribution will be a hard "
+         "cutoff or cliff: after ranking all features by score, the "
+         "k'th highest-ranked feature will be selected with probability "
+         "1.0 if k<N  and with probability 0.0 if k>N.  With this option "
+         "enabled, a total of count=N features will still be selected, "
+         "and most of these will be the highest scoring ones, but a few "
+         "lower-ranked features will also be included.  Specifically, "
+         "the probability of choosing the k'th ranked feature will be "
+         "exp(-tk) with t choosen so that, on average, N features are "
+         "selected.  The initial random seed affects the generated list. "
+         "Currently, this option only applies to the -asimple algo, and "
+         "is ignored by the others (this needs to be fixed.)\n")
+
         (opt_desc_str(threshold_opt).c_str(),
          value<double>(&fs_params.threshold)->default_value(0),
          "Improvment threshold. Floating point number. "
@@ -273,6 +291,10 @@ int main(int argc, char** argv)
         ("hc-crossover-pop-size",
          value<unsigned>(&fs_params.hc_crossover_pop_size)->default_value(120),
          "Hillclimber crossover pop size (see moses --help or man moses for more help)\n")
+
+        ("hc-crossover-min-neighbors",
+         value<unsigned>(&fs_params.hc_crossover_min_neighbors)->default_value(400),
+         "Hillclimber crossover min neighbors (see moses --help or man moses for more help)\n")
 
         ("hc-widen-search",
          value<bool>(&fs_params.hc_widen_search)->default_value(true),

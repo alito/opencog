@@ -1,6 +1,10 @@
 INSTALL (FILES
+	apply.scm
+	debug.scm
+	file-utils.scm
 	example-dbi.scm
-	type_constructors.scm
+	persistence.scm
+	repl-shell.scm
 	utilities.scm
 	DESTINATION "${DATADIR}/scm"
 )

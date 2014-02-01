@@ -48,6 +48,8 @@
 #include <opencog/spacetime/TimeServer.h>
 #include <opencog/spacetime/SpaceTime.h>
 
+#include <opencog/embodiment/AtomSpaceExtensions/atom_types.h>
+
 #include "AtomSpaceUtil.h"
 #include "PredefinedProcedureNames.h"
 #include "CompareAtomTreeTemplate.h"
@@ -102,11 +104,11 @@ Handle AtomSpaceUtil::addNode(AtomSpace& atomSpace,
 Handle AtomSpaceUtil::addLink(AtomSpace& atomSpace,
                               Type linkType,
                               const HandleSeq& outgoing,
-                              bool permanent, bool renew_sti)
+                              bool permanent, bool renew_sti, TruthValuePtr tv)
 {
     Handle result = atomSpace.getHandle(linkType, outgoing);
     if (result == Handle::UNDEFINED) {
-        result = atomSpace.addLink(linkType, outgoing);
+        result = atomSpace.addLink(linkType, outgoing,tv);
         if (permanent) {
             atomSpace.setLTI(result, 1);
         }
@@ -115,7 +117,7 @@ Handle AtomSpaceUtil::addLink(AtomSpace& atomSpace,
             atomSpace.setLTI(result, 1);
         }
     } else if (renew_sti) {
-        result = atomSpace.addLink(linkType, outgoing);
+        result = atomSpace.addLink(linkType, outgoing,tv);
     }
     return result;
 }
@@ -160,7 +162,7 @@ Handle AtomSpaceUtil::addPunishmentPredicate(AtomSpace& atomSpace,
     return evalLink;
 }
 
-bool AtomSpaceUtil::isActionPredicatePresent(const AtomSpace& atomSpace,
+bool AtomSpaceUtil::isActionPredicatePresent(AtomSpace& atomSpace,
         const char* actionPredicateName,
         Handle actionExecLink,
         unsigned long sinceTimestamp)
@@ -299,7 +301,7 @@ Handle AtomSpaceUtil::getSpaceMapHandleAtTimestamp(const AtomSpace &atomSpace,
     return spaceMapHandle;
 }
 */
-bool AtomSpaceUtil::getPredicateValueAtSpaceMap(const AtomSpace& atomSpace,
+bool AtomSpaceUtil::getPredicateValueAtSpaceMap(AtomSpace& atomSpace,
         const std::string predicate,
         const SpaceServer::SpaceMap& sm,
         Handle obj1, Handle obj2)
@@ -372,7 +374,7 @@ bool AtomSpaceUtil::getPredicateValueAtTimestamp(const AtomSpace &atomSpace,
     }
 }
 */
-bool AtomSpaceUtil::getHasSaidValueAtTime(const AtomSpace &atomSpace,
+bool AtomSpaceUtil::getHasSaidValueAtTime(AtomSpace &atomSpace,
         unsigned long timestamp,
         unsigned long delay,
         Handle from_h,
@@ -486,6 +488,12 @@ bool AtomSpaceUtil::isMovingBtwSpaceMap(const AtomSpace& atomSpace,
 
 Handle AtomSpaceUtil::getLatestHandle(const AtomSpace &atomSpace,HandleSeq& handles)
 {
+    if (handles.size() < 1)
+        return Handle::UNDEFINED;
+
+    if ( handles.size() < 2)
+        return handles.front();
+
     std::vector<HandleTemporalPair> handleTemporalPairs;
 
     foreach(Handle h, handles)
@@ -523,11 +531,12 @@ Handle AtomSpaceUtil::getLatestHandle(const AtomSpace &atomSpace,HandleSeq& hand
     return iLatestHandleTemporalPair->getHandle();
 }
 
-Handle AtomSpaceUtil::getLatestEvaluationLink(const AtomSpace &atomSpace,
+Handle AtomSpaceUtil::getLatestEvaluationLink(AtomSpace &atomSpace,
                              std::string predicateName,
                              Handle a,
                              Handle b,
-                             Handle c)
+                             Handle c,
+                             bool getPositiveResult)
 throw(opencog::NotFoundException)
 {
     HandleSeq seq0;
@@ -545,40 +554,70 @@ throw(opencog::NotFoundException)
     Handle predicateHandle = atomSpace.getHandle(PREDICATE_NODE,
                              predicateName);
     if (predicateHandle == Handle::UNDEFINED) {
-        throw opencog::NotFoundException( TRACE_INFO,
-                  (std::string("AtomSpaceUtil - Predicate not found: ")
-                   + predicateName ).c_str( ) );
+        return Handle::UNDEFINED;
     }
 
-    // testing if there is a list link already
+    // some EvalLink has just predicate and the first outgoing
+    // e.g.:
+//    (EvaluationLink (stv 1 1)
+//       (PredicateNode "is_food")
+//       (ListLink
+//          (ConceptNode "apple")
+//       )
+//    )
     Handle listLinkHandle = atomSpace.getHandle(LIST_LINK, seq0);
-    if (listLinkHandle == Handle::UNDEFINED) {
-        throw opencog::NotFoundException( TRACE_INFO,
-                ( "AtomSpaceUtil - List link not found. "
-                  "predicateName[" + predicateName + "]").c_str( ) );
-    }
-
-    HandleSeq seq;
-    seq.push_back(predicateHandle);
-    seq.push_back(listLinkHandle);
-
     HandleSeq evalLinkHandleset;
-    atomSpace.getHandleSet(back_inserter(evalLinkHandleset),
-                           seq, NULL, NULL, 2, EVALUATION_LINK, false);
+    if (listLinkHandle != Handle::UNDEFINED)
+    {
+        HandleSeq seq;
+        seq.push_back(predicateHandle);
+        seq.push_back(listLinkHandle);
 
+        atomSpace.getHandlesByOutgoing(back_inserter(evalLinkHandleset),
+                               seq, NULL, NULL, 2, EVALUATION_LINK, false);
 
-    if (evalLinkHandleset.size() == 0) {
-        throw opencog::NotFoundException(TRACE_INFO,
-               ("AtomSpaceUtil - getLatestEvaluationLink:There is no evaluation link for predicate: "
-                 + predicateName).c_str() );
     }
 
-    return getLatestHandle(atomSpace,evalLinkHandleset);
+    // some EvalLink has its value node blow the first outgoings
+    // in this case, need to call pattern matcher to get the value node given the predicate and first outgoings
+    // e.g.:
+//    (EvaluationLink (stv 1 1)
+//       (PredicateNode "color")
+//       (ListLink
+//          (ConceptNode "sky")
+//          (ConceptNode "blue")
+//       )
+//    )
+
+    if (evalLinkHandleset.size() == 0)
+    {
+        evalLinkHandleset = getEvaluationLinks(atomSpace,predicateName,seq0);
+    }
+
+
+    //  try to get the EvaluationLink with truth value >= 0.5 if any, if not, return the one < 0.5. vice versa
+    HandleSeq handleset;
+    foreach (Handle eh, evalLinkHandleset)
+    {
+        if ( atomSpace.getMean(eh) >= 0.5)
+        {
+            if (getPositiveResult)
+                handleset.push_back(eh);
+        }
+        else if (! getPositiveResult)
+            handleset.push_back(eh);
+    }
+
+    // and then get the lastest one
+    if (handleset.size() == 0)
+        return getLatestHandle(atomSpace,evalLinkHandleset);
+    else
+        return getLatestHandle(atomSpace,handleset);
 
 }
 
 
-float AtomSpaceUtil::getPredicateValue(const AtomSpace &atomSpace,
+float AtomSpaceUtil::getPredicateValue(AtomSpace &atomSpace,
                                        std::string predicateName,
                                        Handle a,
                                        Handle b)
@@ -624,7 +663,7 @@ throw(opencog::NotFoundException)
 }
 
 
-bool AtomSpaceUtil::isPredicateTrue(const AtomSpace &atomSpace,
+bool AtomSpaceUtil::isPredicateTrue(AtomSpace &atomSpace,
                                     std::string predicateName,
                                     Handle a, Handle b)
 {
@@ -635,7 +674,7 @@ bool AtomSpaceUtil::isPredicateTrue(const AtomSpace &atomSpace,
     }
 }
 
-bool AtomSpaceUtil::isPetOwner( const AtomSpace& atomSpace,
+bool AtomSpaceUtil::isPetOwner( AtomSpace& atomSpace,
                                 Handle avatar, Handle pet )
 {
     HandleSeq seq0;
@@ -714,18 +753,18 @@ bool AtomSpaceUtil::getSizeInfo(AtomSpace& atomSpace,
 #else
     HandleSeq incomingSet = atomSpace.getIncoming(sizePredicate);
     foreach(Handle incomingHandle, incomingSet) {
-        boost::shared_ptr<Atom> a = atomSpace.cloneAtom(incomingHandle);
-        boost::shared_ptr<Link> incomingLink = boost::dynamic_pointer_cast<Link>(a);
+        AtomPtr a(incomingHandle);
+        LinkPtr incomingLink(LinkCast(a));
         if (incomingLink->getType() == EVALUATION_LINK &&  incomingLink->getArity() == 2 && 
-                incomingLink->getOutgoingHandle(0) == sizePredicate) {
-            Handle targetHandle = incomingLink->getOutgoingHandle(1);
-            boost::shared_ptr<Atom> targetAtom = atomSpace.cloneAtom(targetHandle);
+                incomingLink->getOutgoingAtom(0) == sizePredicate) {
+            Handle targetHandle = incomingLink->getOutgoingAtom(1);
+            AtomPtr targetAtom(targetHandle);
             if (targetAtom->getType() == LIST_LINK) {
-                boost::shared_ptr<Link> listLink = boost::dynamic_pointer_cast<Link>(targetAtom);
-                if (listLink->getArity() == 4 && listLink->getOutgoingHandle(0) == object) {
-                    length = atof(atomSpace.getName(listLink->getOutgoingHandle(1)).c_str());
-                    width = atof(atomSpace.getName(listLink->getOutgoingHandle(2)).c_str());
-                    height = atof(atomSpace.getName(listLink->getOutgoingHandle(3)).c_str());
+                LinkPtr listLink(LinkCast(targetAtom));
+                if (listLink->getArity() == 4 && listLink->getOutgoingAtom(0) == object) {
+                    length = atof(atomSpace.getName(listLink->getOutgoingAtom(1)).c_str());
+                    width = atof(atomSpace.getName(listLink->getOutgoingAtom(2)).c_str());
+                    height = atof(atomSpace.getName(listLink->getOutgoingAtom(3)).c_str());
                     return true;
                 }
             }
@@ -742,10 +781,10 @@ bool AtomSpaceUtil::getSizeInfo(AtomSpace& atomSpace,
 Handle AtomSpaceUtil::addGenericPropertyPred(AtomSpace& atomSpace,
         std::string predicateName,
         const HandleSeq& ll_out,
-        const TruthValue &tv, bool permanent, const Temporal &t)
+        TruthValuePtr tv, bool permanent, const Temporal &t)
 {
     bool predBool = true;
-    if (tv.getMean() >= 0.5) {
+    if (tv->getMean() >= 0.5) {
         predBool = false;
     }
 
@@ -766,7 +805,7 @@ Handle AtomSpaceUtil::addGenericPropertyPred(AtomSpace& atomSpace,
                      predicateName.c_str());
         return Handle::UNDEFINED;
     } else {
-        ll = atomSpace.addLink(LIST_LINK, ll_out);
+        ll = atomSpace.addLink(LIST_LINK, ll_out,TruthValue::TRUE_TV());
     }
 
     HandleSeq hs2;
@@ -780,9 +819,9 @@ Handle AtomSpaceUtil::addGenericPropertyPred(AtomSpace& atomSpace,
                      predicateName.c_str());
         return Handle::UNDEFINED;
     } else {
-        el = atomSpace.addLink(EVALUATION_LINK, hs2);
+        el = atomSpace.addLink(EVALUATION_LINK, hs2,TruthValue::TRUE_TV());
         logger().fine("AtomSpaceUtil - %s added with TV %f.",
-                     predicateName.c_str(), tv.getMean());
+                     predicateName.c_str(), tv->getMean());
     }
     atomSpace.setTV(el, tv);
 
@@ -838,15 +877,158 @@ std::vector<Handle> AtomSpaceUtil::getInheritanceLinks(AtomSpace & atomSpace, Ha
 
     inheritanceLinkOutgoings.push_back(hFirstOutgoing);
     inheritanceLinkOutgoings.push_back(hVariableNode);
-    Handle hinheritanceLink = atomSpace.addLink(INHERITANCE_LINK, inheritanceLinkOutgoings);
+    Handle hinheritanceLink = atomSpace.addLink(INHERITANCE_LINK, inheritanceLinkOutgoings,TruthValue::TRUE_TV());
 
     implicationLinkOutgoings.push_back(hinheritanceLink);
     implicationLinkOutgoings.push_back(hinheritanceLink);
-    Handle hImplicationLink = atomSpace.addLink(IMPLICATION_LINK, implicationLinkOutgoings);
+    Handle hImplicationLink = atomSpace.addLink(IMPLICATION_LINK, implicationLinkOutgoings,TruthValue::TRUE_TV());
 
     bindLinkOutgoings.push_back(hVariableNode);
     bindLinkOutgoings.push_back(hImplicationLink);
-    Handle hBindLink = atomSpace.addLink(BIND_LINK, bindLinkOutgoings);
+    Handle hBindLink = atomSpace.addLink(BIND_LINK, bindLinkOutgoings,TruthValue::TRUE_TV());
+
+    // Run pattern matcher
+    PatternMatch pm;
+    pm.set_atomspace(&atomSpace);
+    Handle hResultListLink = pm.bindlink(hBindLink);
+
+    // Get result
+    // Note: Don't forget remove the hResultListLink, otherwise some scheme script
+    //       may fail to remove the inheritanceLink when necessary.
+    //       Because the inheritanceLink would have an incoming (i.e. hResultListLink here),
+    //       which would make cog-delete scheme function fail.
+    std::vector<Handle> resultSet = atomSpace.getOutgoing(hResultListLink);
+    atomSpace.removeAtom(hResultListLink);
+
+    return resultSet;
+}
+
+std::vector<Handle> AtomSpaceUtil::getNodesByInheritanceLink(AtomSpace & atomSpace, Handle& hSecondOutgoing)
+{
+    // Create BindLink used by pattern matcher
+    std::vector<Handle> inheritanceLinkOutgoings, implicationLinkOutgoings, bindLinkOutgoings;
+
+    Handle hVariableNode = atomSpace.addNode(VARIABLE_NODE, "$var_any");
+
+    inheritanceLinkOutgoings.push_back(hVariableNode);
+    inheritanceLinkOutgoings.push_back(hSecondOutgoing);
+    Handle hinheritanceLink = atomSpace.addLink(INHERITANCE_LINK, inheritanceLinkOutgoings,TruthValue::TRUE_TV());
+
+    implicationLinkOutgoings.push_back(hinheritanceLink);
+    implicationLinkOutgoings.push_back(hVariableNode);
+    Handle hImplicationLink = atomSpace.addLink(IMPLICATION_LINK, implicationLinkOutgoings,TruthValue::TRUE_TV());
+
+    bindLinkOutgoings.push_back(hVariableNode);
+    bindLinkOutgoings.push_back(hImplicationLink);
+    Handle hBindLink = atomSpace.addLink(BIND_LINK, bindLinkOutgoings,TruthValue::TRUE_TV());
+
+    // Run pattern matcher
+    PatternMatch pm;
+    pm.set_atomspace(&atomSpace);
+    Handle hResultListLink = pm.bindlink(hBindLink);
+
+    // Get result
+    // Note: Don't forget remove the hResultListLink, otherwise some scheme script
+    //       may fail to remove the inheritanceLink when necessary.
+    //       Because the inheritanceLink would have an incoming (i.e. hResultListLink here),
+    //       which would make cog-delete scheme function fail.
+    std::vector<Handle> resultSet = atomSpace.getOutgoing(hResultListLink);
+    atomSpace.removeAtom(hResultListLink);
+
+    return resultSet;
+}
+
+std::vector<Handle> AtomSpaceUtil::getEvaluationLinks(AtomSpace &atomSpace, string predicate, HandleSeq &hfirstOutgoings)
+{
+    // Create BindLink used by pattern matcher
+    std::vector<Handle> implicationLinkOutgoings, bindLinkOutgoings;
+
+    Handle hVariableNode = atomSpace.addNode(VARIABLE_NODE, "$var_any");
+
+    Handle predicateNode = atomSpace.addNode(PREDICATE_NODE, predicate);
+
+    HandleSeq predicateListLinkOutgoings;
+
+    foreach (Handle h, hfirstOutgoings)
+    {
+        predicateListLinkOutgoings.push_back(h);
+    }
+
+    predicateListLinkOutgoings.push_back(hVariableNode);
+
+    Handle predicateListLink = atomSpace.addLink(LIST_LINK, predicateListLinkOutgoings,TruthValue::TRUE_TV());
+
+    HandleSeq evalLinkOutgoings;
+    evalLinkOutgoings.push_back(predicateNode);
+    evalLinkOutgoings.push_back(predicateListLink);
+    Handle hEvalLink = atomSpace.addLink(EVALUATION_LINK, evalLinkOutgoings,TruthValue::TRUE_TV());
+
+    implicationLinkOutgoings.push_back(hEvalLink);
+
+    // return the EvaluationLinks
+    implicationLinkOutgoings.push_back(hEvalLink);
+
+    Handle hImplicationLink = atomSpace.addLink(IMPLICATION_LINK, implicationLinkOutgoings,TruthValue::TRUE_TV());
+
+    bindLinkOutgoings.push_back(hVariableNode);
+    bindLinkOutgoings.push_back(hImplicationLink);
+    Handle hBindLink = atomSpace.addLink(BIND_LINK, bindLinkOutgoings,TruthValue::TRUE_TV());
+
+//            cout<< "hBindLink: \n" << atomSpace.atomAsString(hBindLink) << std::endl;
+
+
+    // Run pattern matcher
+    PatternMatch pm;
+    pm.set_atomspace(&atomSpace);
+    Handle hResultListLink = pm.bindlink(hBindLink);
+
+    // Get result
+    // Note: Don't forget remove the hResultListLink, otherwise some scheme script
+    //       may fail to remove the inheritanceLink when necessary.
+    //       Because the inheritanceLink would have an incoming (i.e. hResultListLink here),
+    //       which would make cog-delete scheme function fail.
+    std::vector<Handle> resultSet = atomSpace.getOutgoing(hResultListLink);
+    atomSpace.removeAtom(hResultListLink);
+
+    return resultSet;
+}
+
+std::vector<Handle> AtomSpaceUtil::getNodesByEvaluationLink(AtomSpace &atomSpace, string predicate, HandleSeq &hNonFirstOutgoings)
+{
+    // Create BindLink used by pattern matcher
+    std::vector<Handle> implicationLinkOutgoings, bindLinkOutgoings;
+
+    Handle hVariableNode = atomSpace.addNode(VARIABLE_NODE, "$var_any");
+
+    Handle predicateNode = atomSpace.addNode(PREDICATE_NODE, predicate);
+
+    HandleSeq predicateListLinkOutgoings;
+    predicateListLinkOutgoings.push_back(hVariableNode);
+
+    foreach (Handle h, hNonFirstOutgoings)
+    {
+        predicateListLinkOutgoings.push_back(h);
+    }
+
+    Handle predicateListLink = atomSpace.addLink(LIST_LINK, predicateListLinkOutgoings,TruthValue::TRUE_TV());
+
+    HandleSeq evalLinkOutgoings;
+    evalLinkOutgoings.push_back(predicateNode);
+    evalLinkOutgoings.push_back(predicateListLink);
+    Handle hEvalLink = atomSpace.addLink(EVALUATION_LINK, evalLinkOutgoings,TruthValue::TRUE_TV());
+
+    implicationLinkOutgoings.push_back(hEvalLink);
+
+    implicationLinkOutgoings.push_back(hVariableNode);
+
+    Handle hImplicationLink = atomSpace.addLink(IMPLICATION_LINK, implicationLinkOutgoings,TruthValue::TRUE_TV());
+
+    bindLinkOutgoings.push_back(hVariableNode);
+    bindLinkOutgoings.push_back(hImplicationLink);
+    Handle hBindLink = atomSpace.addLink(BIND_LINK, bindLinkOutgoings,TruthValue::TRUE_TV());
+
+//            cout<< "hBindLink: \n" << atomSpace.atomAsString(hBindLink) << std::endl;
+
 
     // Run pattern matcher
     PatternMatch pm;
@@ -873,15 +1055,15 @@ Handle AtomSpaceUtil::getReferenceLink(AtomSpace & atomSpace, Handle hFirstOutgo
 
     referenceLinkOutgoings.push_back(hFirstOutgoing); 
     referenceLinkOutgoings.push_back(hVariableNode); 
-    Handle hReferenceLink = atomSpace.addLink(REFERENCE_LINK, referenceLinkOutgoings);
+    Handle hReferenceLink = atomSpace.addLink(REFERENCE_LINK, referenceLinkOutgoings,TruthValue::TRUE_TV());
 
     implicationLinkOutgoings.push_back(hReferenceLink); 
     implicationLinkOutgoings.push_back(hReferenceLink); 
-    Handle hImplicationLink = atomSpace.addLink(IMPLICATION_LINK, implicationLinkOutgoings); 
+    Handle hImplicationLink = atomSpace.addLink(IMPLICATION_LINK, implicationLinkOutgoings,TruthValue::TRUE_TV());
 
     bindLinkOutgoings.push_back(hVariableNode);  
     bindLinkOutgoings.push_back(hImplicationLink); 
-    Handle hBindLink = atomSpace.addLink(BIND_LINK, bindLinkOutgoings);  
+    Handle hBindLink = atomSpace.addLink(BIND_LINK, bindLinkOutgoings,TruthValue::TRUE_TV());
 
     // Run pattern matcher
     PatternMatch pm; 
@@ -945,8 +1127,8 @@ float AtomSpaceUtil::getCurrentPetFeelingLevel( AtomSpace& atomSpace,
     // Add EvaluationLink
     HandleSeq evalLinkOutgoing;
     evalLinkOutgoing.push_back(feelingNode);
-    evalLinkOutgoing.push_back(atomSpace.addLink(LIST_LINK, agentNode));
-    Handle evalLink = atomSpace.addLink(EVALUATION_LINK, evalLinkOutgoing);
+    evalLinkOutgoing.push_back(atomSpace.addLink(LIST_LINK, agentNode,TruthValue::TRUE_TV()));
+    Handle evalLink = atomSpace.addLink(EVALUATION_LINK, evalLinkOutgoing,TruthValue::TRUE_TV());
 
     TimeServer& ts = timeServer();
     unsigned long latest = ts.getLatestTimestamp();
@@ -958,7 +1140,7 @@ float AtomSpaceUtil::getCurrentPetFeelingLevel( AtomSpace& atomSpace,
     return atomSpace.getTV(atTime)->getMean();
 }
 
-float AtomSpaceUtil::getCurrentModulatorLevel(const AtomSpace & atomSpace,
+float AtomSpaceUtil::getCurrentModulatorLevel(AtomSpace & atomSpace,
                                               const std::string & modulatorName)
 
 {
@@ -1125,7 +1307,7 @@ float AtomSpaceUtil::getCurrentModulatorLevel(const AtomSpace & atomSpace,
     return boost::lexical_cast<float> ( atomSpace.getName(hNumberNode) );
 }
 
-float AtomSpaceUtil::getCurrentDemandLevel(const AtomSpace & atomSpace,
+float AtomSpaceUtil::getCurrentDemandLevel(AtomSpace & atomSpace,
                                            const std::string & demandName)
 {
     float errorValue = randGen().randfloat();   // If error happens, return this value anyway.
@@ -1280,7 +1462,7 @@ float AtomSpaceUtil::getCurrentDemandLevel(const AtomSpace & atomSpace,
     return boost::lexical_cast<float> ( atomSpace.getName(hNumberNode) );
 }
 
-Handle AtomSpaceUtil::getDemandGoalEvaluationLink(const AtomSpace & atomSpace, 
+Handle AtomSpaceUtil::getDemandGoalEvaluationLink(AtomSpace & atomSpace, 
                                                   const std::string & demand 
                                                  )
 {
@@ -1370,7 +1552,7 @@ void AtomSpaceUtil::getAllEvaluationLinks(const AtomSpace& atomSpace,
 
 Handle AtomSpaceUtil::setPredicateValue( AtomSpace& atomSpace,
         std::string predicateName,
-        const TruthValue &tv,
+        TruthValuePtr tv,
         Handle object1,
         Handle object2,
         Handle object3 )
@@ -1414,7 +1596,7 @@ Handle AtomSpaceUtil::setPredicateValue( AtomSpace& atomSpace,
 Handle AtomSpaceUtil::addPropertyPredicate(AtomSpace& atomSpace,
         std::string predicateName,
         Handle object,
-        const TruthValue &tv,
+        TruthValuePtr tv,
         bool permanent,
         const Temporal &t)
 {
@@ -1428,7 +1610,7 @@ Handle AtomSpaceUtil::addPropertyPredicate(AtomSpace& atomSpace,
         std::string predicateName,
         Handle a,
         Handle b,
-        const TruthValue& tv,
+        TruthValuePtr tv,
         const Temporal& t)
 {
 
@@ -1493,7 +1675,7 @@ void AtomSpaceUtil::setupHoldingObject( AtomSpace& atomSpace,
         }
         AtomSpaceUtil::setPredicateValue( atomSpace,
                                           IS_HOLDING_SOMETHING_PREDICATE_NAME,
-                                          SimpleTruthValue( 0.0, 1.0 ),
+                                          SimpleTruthValue::createTV( 0.0, 1.0 ),
                                           holderHandle );
     } else {
         // grab: it is now holding an object
@@ -1505,14 +1687,14 @@ void AtomSpaceUtil::setupHoldingObject( AtomSpace& atomSpace,
                      currentTimestamp);
         AtomSpaceUtil::setPredicateValue( atomSpace,
                                           IS_HOLDING_SOMETHING_PREDICATE_NAME,
-                                          SimpleTruthValue( 1.0, 1.0 ),
+                                          SimpleTruthValue::createTV( 1.0, 1.0 ),
                                           holderHandle );
         Handle isHoldingAtTimeLink =
             AtomSpaceUtil::addPropertyPredicate( atomSpace,
                                                  IS_HOLDING_PREDICATE_NAME,
                                                  holderHandle,
                                                  objectHandle,
-                                                 SimpleTruthValue( 1.0, 1.0 ),
+                                                 SimpleTruthValue::createTV( 1.0, 1.0 ),
                                                  Temporal(currentTimestamp) );
         // Now, it cannot be forgotten (until the agent drop the object)
         // TODO: this is untrue, it should use VLTI
@@ -1520,7 +1702,7 @@ void AtomSpaceUtil::setupHoldingObject( AtomSpace& atomSpace,
     }
 }
 
-Handle AtomSpaceUtil::getLatestHoldingObjectHandle(const AtomSpace& atomSpace,
+Handle AtomSpaceUtil::getLatestHoldingObjectHandle(AtomSpace& atomSpace,
         const std::string& holderId )
 {
 
@@ -1546,21 +1728,19 @@ Handle AtomSpaceUtil::getLatestHoldingObjectHandle(const AtomSpace& atomSpace,
     return Handle::UNDEFINED;
 }
 
-bool AtomSpaceUtil::isObjectBeingHolded( const AtomSpace& atomSpace,
+bool AtomSpaceUtil::isObjectBeingHolded( AtomSpace& atomSpace,
         const std::string& objectId )
 {
     return ( getObjectHolderHandle( atomSpace, objectId ) != Handle::UNDEFINED );
 }
 
-Handle AtomSpaceUtil::getObjectHolderHandle( const AtomSpace& atomSpace,
+Handle AtomSpaceUtil::getObjectHolderHandle( AtomSpace& atomSpace,
         const std::string& objectId )
 {
     // TODO: try to optimize this method. It is using getHandleSet twice for
     // isHolding (below and through getLatestHoldingObjectHandle)
     std::vector<Handle> handles;
-    atomSpace.getHandleSet( back_inserter(handles),
-                            OBJECT_NODE,
-                            objectId, true );
+    atomSpace.getHandlesByName( back_inserter(handles), objectId, OBJECT_NODE, true );
 
     if (handles.size() != 1) {
         logger().debug("AtomSpaceUtil - No agent is holding object[%s]",
@@ -1624,7 +1804,7 @@ Handle AtomSpaceUtil::getObjectHolderHandle( const AtomSpace& atomSpace,
     return Handle::UNDEFINED;
 }
 
-std::string AtomSpaceUtil::getObjectHolderId( const AtomSpace& atomSpace,
+std::string AtomSpaceUtil::getObjectHolderId( AtomSpace& atomSpace,
         const std::string& objectId )
 {
     Handle objectHandle = getObjectHolderHandle( atomSpace, objectId );
@@ -1635,7 +1815,7 @@ std::string AtomSpaceUtil::getObjectHolderId( const AtomSpace& atomSpace,
 }
 
 
-Handle AtomSpaceUtil::getMostRecentIsHoldingAtTimeLink(const AtomSpace& atomSpace,
+Handle AtomSpaceUtil::getMostRecentIsHoldingAtTimeLink(AtomSpace& atomSpace,
         const std::string& holderId )
 {
     Handle holderHandle = getAgentHandle( atomSpace, holderId );
@@ -1679,7 +1859,7 @@ Handle AtomSpaceUtil::getMostRecentIsHoldingAtTimeLink(const AtomSpace& atomSpac
     return Handle::UNDEFINED;
 }
 
-Handle AtomSpaceUtil::getMostRecentIsHoldingLink(const AtomSpace& atomSpace,
+Handle AtomSpaceUtil::getMostRecentIsHoldingLink(AtomSpace& atomSpace,
         const std::string& holderId )
 {
     Handle h = getMostRecentIsHoldingAtTimeLink(atomSpace, holderId);
@@ -1688,7 +1868,7 @@ Handle AtomSpaceUtil::getMostRecentIsHoldingLink(const AtomSpace& atomSpace,
     else return Handle::UNDEFINED;
 }
 
-std::string AtomSpaceUtil::getHoldingObjectId(const AtomSpace& atomSpace,
+std::string AtomSpaceUtil::getHoldingObjectId(AtomSpace& atomSpace,
         const std::string& holderId )
 {
     Handle holderHandle = getAgentHandle( atomSpace, holderId );
@@ -1706,7 +1886,7 @@ std::string AtomSpaceUtil::getHoldingObjectId(const AtomSpace& atomSpace,
     return atomSpace.getName(objectHandle);
 }
 
-bool AtomSpaceUtil::isHoldingSomething(const AtomSpace& atomSpace,
+bool AtomSpaceUtil::isHoldingSomething(AtomSpace& atomSpace,
                                        const std::string& holderId)
 {
     Handle holderHandle = getAgentHandle(atomSpace, holderId);
@@ -1717,7 +1897,7 @@ bool AtomSpaceUtil::isHoldingSomething(const AtomSpace& atomSpace,
                                           holderHandle);
 }
 
-Handle AtomSpaceUtil::getHoldingObjectHandleAtTime(const AtomSpace& atomSpace,
+Handle AtomSpaceUtil::getHoldingObjectHandleAtTime(AtomSpace& atomSpace,
         const std::string& holderId,
         unsigned long time)
 {
@@ -1741,7 +1921,7 @@ Handle AtomSpaceUtil::getHoldingObjectHandleAtTime(const AtomSpace& atomSpace,
     return Handle::UNDEFINED;
 }
 
-Handle AtomSpaceUtil::getIsHoldingLinkAtTime(const AtomSpace& atomSpace,
+Handle AtomSpaceUtil::getIsHoldingLinkAtTime(AtomSpace& atomSpace,
         const std::string& holderId,
         unsigned long time)
 {
@@ -1798,7 +1978,7 @@ Handle AtomSpaceUtil::getIsHoldingLinkAtTime(const AtomSpace& atomSpace,
     } else return Handle::UNDEFINED;
 }
 
-std::string AtomSpaceUtil::getHoldingObjectIdAtTime(const AtomSpace& as,
+std::string AtomSpaceUtil::getHoldingObjectIdAtTime(AtomSpace& as,
         const std::string& holderId,
         unsigned long time)
 {
@@ -1822,7 +2002,7 @@ std::string AtomSpaceUtil::getObjectName( const AtomSpace& atomSpace,
         objectName[1] = object;
         Type types[] = { WORD_NODE, atomSpace.getType( object ) };
         HandleSeq wrLinks;
-        atomSpace.getHandleSet( back_inserter(wrLinks), objectName,
+        atomSpace.getHandlesByOutgoing( back_inserter(wrLinks), objectName,
                                 &types[0], NULL, 2, WR_LINK, false );
         if ( wrLinks.size( ) > 0 ) {
             name = atomSpace.getName( atomSpace.getOutgoing( wrLinks[0], 0 ) );
@@ -1832,7 +2012,7 @@ std::string AtomSpaceUtil::getObjectName( const AtomSpace& atomSpace,
     return name;
 }
 
-std::string AtomSpaceUtil::getObjIdFromName( const AtomSpace& atomSpace,
+std::string AtomSpaceUtil::getObjIdFromName( AtomSpace& atomSpace,
         const std::string& objName )
 {
     std::string result;
@@ -1843,7 +2023,7 @@ std::string AtomSpaceUtil::getObjIdFromName( const AtomSpace& atomSpace,
         outgoing.push_back(objNameHandle);
         outgoing.push_back(Handle::UNDEFINED);
         HandleSeq wrLinks;
-        atomSpace.getHandleSet(back_inserter(wrLinks), outgoing,
+        atomSpace.getHandlesByOutgoing(back_inserter(wrLinks), outgoing,
                                NULL, NULL, 2, WR_LINK, false);
         if (!wrLinks.empty()) {
             objIdHandle = atomSpace.getOutgoing(wrLinks[0], 1);
@@ -1868,7 +2048,7 @@ std::string AtomSpaceUtil::getObjIdFromName( const AtomSpace& atomSpace,
             outgoing.push_back(objNameHandle);
             outgoing.push_back(Handle::UNDEFINED);
             HandleSeq wrLinks;
-            atomSpace.getHandleSet(back_inserter(wrLinks), outgoing,
+            atomSpace.getHandlesByOutgoing(back_inserter(wrLinks), outgoing,
                                    NULL, NULL, 2, WR_LINK, false);
             if (!wrLinks.empty()) {
                 objIdHandle = atomSpace.getOutgoing(wrLinks[0], 1);
@@ -1895,7 +2075,7 @@ std::string AtomSpaceUtil::getObjIdFromName( const AtomSpace& atomSpace,
             outgoing.push_back(objNameHandle);
             outgoing.push_back(Handle::UNDEFINED);
             HandleSeq wrLinks;
-            atomSpace.getHandleSet(back_inserter(wrLinks), outgoing,
+            atomSpace.getHandlesByOutgoing(back_inserter(wrLinks), outgoing,
                                    NULL, NULL, 2, WR_LINK, false);
             if (!wrLinks.empty()) {
                 objIdHandle = atomSpace.getOutgoing(wrLinks[0], 1);
@@ -2152,12 +2332,12 @@ Handle AtomSpaceUtil::getMostRecentAgentActionLink( AtomSpace& atomSpace,
     std::vector<Handle> handles;
     HandleSeq incomingSet = atomSpace.getIncoming(agentHandle);
     foreach(Handle incomingHandle, incomingSet) {
-        boost::shared_ptr<Atom> a = atomSpace.cloneAtom(incomingHandle);
-        boost::shared_ptr<Link> incomingLink = boost::dynamic_pointer_cast<Link>(a);
+        AtomPtr a(incomingHandle);
+        LinkPtr incomingLink(LinkCast(a));
         if (incomingLink->getType() == LIST_LINK &&
                 incomingLink->getArity() == 3 && 
-                incomingLink->getOutgoingHandle(0) == agentHandle && 
-                incomingLink->getOutgoingHandle(1) == actionNodeHandle) {
+                incomingLink->getOutgoingAtom(0) == agentHandle && 
+                incomingLink->getOutgoingAtom(1) == actionNodeHandle) {
             handles.push_back(incomingHandle);
         }
     }
@@ -2302,7 +2482,7 @@ std::string AtomSpaceUtil::convertAgentActionParametersToString( const AtomSpace
     return "";
 }
 
-Handle AtomSpaceUtil::getModulatorSimilarityLink(const AtomSpace & atomSpace,  
+Handle AtomSpaceUtil::getModulatorSimilarityLink(AtomSpace & atomSpace,  
                                   const std::string & modulator, 
                                   const std::string & petId)
 {
@@ -2462,34 +2642,34 @@ bool AtomSpaceUtil::getDemandEvaluationLinks (AtomSpace & atomSpace,
     Handle hVariableNodeListLink = atomSpace.addNode(VARIABLE_NODE, "$var_list_link");  
     tempOutgoings.push_back(hVariableNodeListLink); 
     tempOutgoings.push_back(hVariableTypeNodeListLink); 
-    variableListLinkOutgoings.push_back( atomSpace.addLink(TYPED_VARIABLE_LINK, tempOutgoings) ); 
+    variableListLinkOutgoings.push_back( atomSpace.addLink(TYPED_VARIABLE_LINK, tempOutgoings,TruthValue::TRUE_TV()) );
 
-    Handle hVariableListLink = atomSpace.addLink(LIST_LINK, variableListLinkOutgoings);
+    Handle hVariableListLink = atomSpace.addLink(LIST_LINK, variableListLinkOutgoings,TruthValue::TRUE_TV());
 
     tempOutgoings.clear();
     tempOutgoings.push_back( atomSpace.addNode(PREDICATE_NODE, demandName+"DemandGoal") ); 
-    Handle hEvaluationLinkDemandGoal = atomSpace.addLink(EVALUATION_LINK, tempOutgoings);  
+    Handle hEvaluationLinkDemandGoal = atomSpace.addLink(EVALUATION_LINK, tempOutgoings,TruthValue::TRUE_TV());
 
     tempOutgoings.clear(); 
     tempOutgoings.push_back( atomSpace.addNode(GROUNDED_PREDICATE_NODE, "fuzzy_within") ); 
     tempOutgoings.push_back(hVariableNodeListLink); 
-    Handle hEvaluationLinkFuzzyWithin = atomSpace.addLink(EVALUATION_LINK, tempOutgoings); 
+    Handle hEvaluationLinkFuzzyWithin = atomSpace.addLink(EVALUATION_LINK, tempOutgoings,TruthValue::TRUE_TV());
 
     tempOutgoings.clear(); 
     tempOutgoings.push_back(hEvaluationLinkDemandGoal); 
     tempOutgoings.push_back(hEvaluationLinkFuzzyWithin); 
-    Handle hSimultaneousEquivalenceLink = atomSpace.addLink(SIMULTANEOUS_EQUIVALENCE_LINK, tempOutgoings); 
-    Handle hReturnListLink = atomSpace.addLink(LIST_LINK, tempOutgoings); 
+    Handle hSimultaneousEquivalenceLink = atomSpace.addLink(SIMULTANEOUS_EQUIVALENCE_LINK, tempOutgoings,TruthValue::TRUE_TV());
+    Handle hReturnListLink = atomSpace.addLink(LIST_LINK, tempOutgoings,TruthValue::TRUE_TV());
 
     tempOutgoings.clear(); 
     tempOutgoings.push_back(hSimultaneousEquivalenceLink); 
     tempOutgoings.push_back(hReturnListLink); 
-    Handle hImplicationLink = atomSpace.addLink(IMPLICATION_LINK, tempOutgoings); 
+    Handle hImplicationLink = atomSpace.addLink(IMPLICATION_LINK, tempOutgoings,TruthValue::TRUE_TV());
 
     tempOutgoings.clear(); 
     tempOutgoings.push_back(hVariableListLink); 
     tempOutgoings.push_back(hImplicationLink); 
-    Handle hBindLink = atomSpace.addLink(BIND_LINK, tempOutgoings); 
+    Handle hBindLink = atomSpace.addLink(BIND_LINK, tempOutgoings,TruthValue::TRUE_TV());
 
     // Run pattern matcher
     PatternMatch pm; 
@@ -2700,7 +2880,7 @@ bool AtomSpaceUtil::getDemandEvaluationLinks (AtomSpace & atomSpace,
 */
 }
 
-Handle AtomSpaceUtil::getRuleImplicationLink(const AtomSpace& atomSpace,
+Handle AtomSpaceUtil::getRuleImplicationLink(AtomSpace& atomSpace,
         const std::string& rule)
 {
 
@@ -2735,7 +2915,7 @@ Handle AtomSpaceUtil::getRuleImplicationLink(const AtomSpace& atomSpace,
     return implicationLink;
 }
 
-float AtomSpaceUtil::getRuleImplicationLinkStrength(const AtomSpace& atomSpace,
+float AtomSpaceUtil::getRuleImplicationLinkStrength(AtomSpace& atomSpace,
         const std::string& rule,
         const std::string& agentModeName )
 {
@@ -2757,8 +2937,7 @@ float AtomSpaceUtil::getRuleImplicationLinkStrength(const AtomSpace& atomSpace,
     } // if
 
     // strength is given by link TruthValue
-    return (atomSpace.getTV(implicationLink, VersionHandle( CONTEXTUAL,
-                            agentModeNode ) )->toFloat());
+    return (atomSpace.getTV(implicationLink)->getMean());
 }
 
 spatial::math::Vector3 AtomSpaceUtil::getMostRecentObjectVelocity( const AtomSpace& atomSpace, const std::string& objectId, unsigned long afterTimestamp )
@@ -2792,7 +2971,7 @@ spatial::math::Vector3 AtomSpaceUtil::getMostRecentObjectVelocity( const AtomSpa
 }
 
 
-Handle AtomSpaceUtil::getObjectHandle( const AtomSpace& atomSpace,
+Handle AtomSpaceUtil::getObjectHandle( AtomSpace& atomSpace,
                                        const std::string& objectId )
 {
     // concept node objects
@@ -2809,16 +2988,13 @@ Handle AtomSpaceUtil::getObjectHandle( const AtomSpace& atomSpace,
         return atomSpace.getHandle(CONCEPT_NODE, objectId);
     } else { //Now let's deal with the default case
         HandleSeq tmp;
-        atomSpace.getHandleSet(std::back_inserter(tmp),
-                               ACCESSORY_NODE, objectId);
+        atomSpace.getHandlesByName(std::back_inserter(tmp), objectId, ACCESSORY_NODE);
         if (tmp.empty()) { //it is not an accessory, let's try a structure
-            atomSpace.getHandleSet(std::back_inserter(tmp),
-                                   STRUCTURE_NODE, objectId);
+            atomSpace.getHandlesByName(std::back_inserter(tmp), objectId, STRUCTURE_NODE);
         }
 
         if (tmp.empty()) { //it is not an structure, let's try a ordinary object
-            atomSpace.getHandleSet(std::back_inserter(tmp),
-                                   OBJECT_NODE, objectId);
+            atomSpace.getHandlesByName(std::back_inserter(tmp), objectId, OBJECT_NODE);
         }
 
         //assume that structure and accessories have distinct id
@@ -2828,7 +3004,7 @@ Handle AtomSpaceUtil::getObjectHandle( const AtomSpace& atomSpace,
     }
 }
 
-Handle AtomSpaceUtil::getAgentHandle( const AtomSpace& atomSpace,
+Handle AtomSpaceUtil::getAgentHandle( AtomSpace& atomSpace,
                                       const std::string& agentId )
 {
     Handle agentHandle = atomSpace.getHandle( PET_NODE, agentId );
@@ -2851,7 +3027,7 @@ Handle AtomSpaceUtil::getAgentHandle( const AtomSpace& atomSpace,
     return agentHandle;
 }
 
-Handle AtomSpaceUtil::getEntityHandle( const AtomSpace& atomSpace,
+Handle AtomSpaceUtil::getEntityHandle( AtomSpace& atomSpace,
                                        const std::string& entityId )
 {
     // try maybe it's an object
@@ -3066,18 +3242,18 @@ Handle AtomSpaceUtil::getFrameElements( AtomSpace& atomSpace, const std::string&
         HandleSeq incomingSet = atomSpace.getIncoming(frameNode);
 
         foreach(Handle incomingHandle, incomingSet) {
-            boost::shared_ptr<Atom> a = atomSpace.cloneAtom(incomingHandle);
-            boost::shared_ptr<Link> incomingLink = boost::dynamic_pointer_cast<Link>(a);
+            AtomPtr a(incomingHandle);
+            LinkPtr incomingLink(LinkCast(a));
 
             if (incomingLink->getType() == FRAME_ELEMENT_LINK &&  
                 incomingLink->getArity() == 2 && 
-                incomingLink->getOutgoingHandle(0) == frameNode) {
-                frameElementsHandles.push_back(incomingLink->getOutgoingHandle(1));
+                incomingLink->getOutgoingAtom(0) == frameNode) {
+                frameElementsHandles.push_back(incomingLink->getOutgoingAtom(1));
             } 
             else if (incomingLink->getType() == INHERITANCE_LINK &&  
                      incomingLink->getArity() == 2 && 
-                     incomingLink->getOutgoingHandle(0) == frameNode) {
-                parentFrames.push_back(incomingLink->getOutgoingHandle(1));
+                     incomingLink->getOutgoingAtom(0) == frameNode) {
+                parentFrames.push_back(incomingLink->getOutgoingAtom(1));
             }
         }
 
@@ -3101,7 +3277,7 @@ Handle AtomSpaceUtil::getFrameElements( AtomSpace& atomSpace, const std::string&
 Handle AtomSpaceUtil::setPredicateFrameFromHandles( AtomSpace& atomSpace, const std::string& frameName, 
                                                     const std::string& frameInstanceName, 
                                                     const std::map<std::string, Handle>& frameElementsValuesHandles, 
-                                                    const TruthValue& truthValue, bool permanent )
+                                                    TruthValuePtr truthValue, bool permanent )
 {
     Handle frameNode = atomSpace.getHandle( DEFINED_FRAME_NODE, frameName );
 
@@ -3172,11 +3348,11 @@ Handle AtomSpaceUtil::setPredicateFrameFromHandles( AtomSpace& atomSpace, const 
                 // Remove any old value
                 HandleSeq incomingSet = atomSpace.getIncoming(frameElementInstance);
                 foreach(Handle incomingHandle, incomingSet) {
-                    boost::shared_ptr<Atom> a = atomSpace.cloneAtom(incomingHandle);
-                    boost::shared_ptr<Link> incomingLink = boost::dynamic_pointer_cast<Link>(a);
+                    AtomPtr a(incomingHandle);
+                    LinkPtr incomingLink(LinkCast(a));
                     if (incomingLink->getType() == EVALUATION_LINK &&  
                         incomingLink->getArity() == 2 && 
-                        incomingLink->getOutgoingHandle(0) == frameElementInstance) {
+                        incomingLink->getOutgoingAtom(0) == frameElementInstance) {
                         atomSpace.removeAtom(incomingHandle);
                     } 
                 }
@@ -3216,13 +3392,13 @@ Handle AtomSpaceUtil::setPredicateFrameFromHandles( AtomSpace& atomSpace, const 
                     // present anymore
                     HandleSeq incomingSet = atomSpace.getIncoming(frameElementInstance);
                     foreach(Handle incomingHandle, incomingSet) {
-                        boost::shared_ptr<Atom> a = atomSpace.cloneAtom(incomingHandle);
-                        boost::shared_ptr<Link> incomingLink = boost::dynamic_pointer_cast<Link>(a);
+                        AtomPtr a(incomingHandle);
+                        LinkPtr incomingLink(LinkCast(a));
                         if (incomingLink->getArity() == 2 && 
                            ((incomingLink->getType() == INHERITANCE_LINK &&   
-                             incomingLink->getOutgoingHandle(0) == frameElementInstance) || 
+                             incomingLink->getOutgoingAtom(0) == frameElementInstance) || 
                             (incomingLink->getType() == FRAME_ELEMENT_LINK &&  
-                             incomingLink->getOutgoingHandle(1) == frameElementInstance))) {  
+                             incomingLink->getOutgoingAtom(1) == frameElementInstance))) {  
                             atomSpace.removeAtom(incomingHandle);
                         } 
                     }
@@ -3285,7 +3461,7 @@ std::map<std::string, Handle> AtomSpaceUtil::getFrameElementInstanceNameValues( 
 
     Type inheritanceLinkTypes[] = { PREDICATE_NODE, DEFINED_FRAME_NODE };
     HandleSeq inheritanceLinks;
-    atomSpace.getHandleSet( back_inserter( inheritanceLinks ),
+    atomSpace.getHandlesByOutgoing( back_inserter( inheritanceLinks ),
                             inheritanceLink,
                             &inheritanceLinkTypes[0], NULL, 2, INHERITANCE_LINK, false );        
 
@@ -3346,7 +3522,7 @@ std::map<std::string, Handle> AtomSpaceUtil::getFrameElementInstanceNameValues( 
         elementValue.push_back( Handle::UNDEFINED );
         
         HandleSeq evaluationLinks;
-        atomSpace.getHandleSet( back_inserter( evaluationLinks ),
+        atomSpace.getHandlesByOutgoing( back_inserter( evaluationLinks ),
                                 elementValue, NULL, NULL, 2, EVALUATION_LINK, false );
 
         // store (frame element name, frame element instance value) pair
@@ -3389,7 +3565,7 @@ HandleSeq AtomSpaceUtil::retrieveFrameInstancesUsingAnElementValue( AtomSpace& a
     evalLink.push_back( aElementValue );
     HandleSeq evalLinks;
     Type evalLinkTypes[] = {PREDICATE_NODE, atomSpace.getType( aElementValue ) };
-    atomSpace.getHandleSet( back_inserter( evalLinks ),
+    atomSpace.getHandlesByOutgoing( back_inserter( evalLinks ),
                             evalLink,
                             &evalLinkTypes[0], NULL, 2, EVALUATION_LINK, false );
 
@@ -3415,7 +3591,7 @@ HandleSeq AtomSpaceUtil::retrieveFrameInstancesUsingAnElementValue( AtomSpace& a
                 
                 HandleSeq frameElementLinks;
                 Type frameElementLinkTypes[] = { PREDICATE_NODE, PREDICATE_NODE };
-                atomSpace.getHandleSet( back_inserter( frameElementLinks ),
+                atomSpace.getHandlesByOutgoing( back_inserter( frameElementLinks ),
                                         frameElementLink,
                                         &frameElementLinkTypes[0], NULL, 2,
                                         FRAME_ELEMENT_LINK, false );
@@ -3485,12 +3661,12 @@ void AtomSpaceUtil::deleteFrameInstance( AtomSpace& atomSpace, Handle frameInsta
         bool found = false;
         HandleSeq incomingSet = atomSpace.getIncoming(frameInstance);
         foreach(Handle incomingHandle, incomingSet) { 
-            boost::shared_ptr<Atom> a = atomSpace.cloneAtom(incomingHandle);
-            boost::shared_ptr<Link> incomingLink = boost::dynamic_pointer_cast<Link>(a);
+            AtomPtr a(incomingHandle);
+            LinkPtr incomingLink(LinkCast(a));
             if (incomingLink->getType() == INHERITANCE_LINK) {
-                if (incomingLink->getArity() == 2 && incomingLink->getOutgoingHandle(0) == frameInstance) {
-                    Handle targetHandle = incomingLink->getOutgoingHandle(1);
-                    boost::shared_ptr<Atom> targetAtom = atomSpace.cloneAtom(targetHandle);
+                if (incomingLink->getArity() == 2 && incomingLink->getOutgoingAtom(0) == frameInstance) {
+                    Handle targetHandle = incomingLink->getOutgoingAtom(1);
+                    AtomPtr targetAtom(targetHandle);
                     if (targetAtom->getType() == DEFINED_FRAME_NODE) {
                         found = true;
                         atomSpace.removeAtom(incomingHandle);
@@ -3522,12 +3698,12 @@ void AtomSpaceUtil::deleteFrameInstance( AtomSpace& atomSpace, Handle frameInsta
     HandleSeq frameElements;
     HandleSeq incomingSet = atomSpace.getIncoming(frameInstance);
     foreach(Handle incomingHandle, incomingSet) {
-        boost::shared_ptr<Atom> a = atomSpace.cloneAtom(incomingHandle);
-        boost::shared_ptr<Link> incomingLink = boost::dynamic_pointer_cast<Link>(a);
+        AtomPtr a(incomingHandle);
+        LinkPtr incomingLink(LinkCast(a));
         if (incomingLink->getType() == FRAME_ELEMENT_LINK) {
-            if (incomingLink->getArity() == 2 && incomingLink->getOutgoingHandle(0) == frameInstance) {
-                Handle targetHandle = incomingLink->getOutgoingHandle(1);
-                boost::shared_ptr<Atom> targetAtom = atomSpace.cloneAtom(targetHandle);
+            if (incomingLink->getArity() == 2 && incomingLink->getOutgoingAtom(0) == frameInstance) {
+                Handle targetHandle = incomingLink->getOutgoingAtom(1);
+                AtomPtr targetAtom(targetHandle);
                 if (targetAtom->getType() == PREDICATE_NODE) {
                     frameElements.push_back(incomingHandle);
                 }
@@ -3557,12 +3733,12 @@ void AtomSpaceUtil::deleteFrameInstance( AtomSpace& atomSpace, Handle frameInsta
         Handle inheritanceLink = Handle::UNDEFINED;
         HandleSeq elemIncomingSet = atomSpace.getIncoming(elementPredicate);
         foreach (Handle elemIncomingHandle, elemIncomingSet) {
-            boost::shared_ptr<Atom> a = atomSpace.cloneAtom(elemIncomingHandle);
-            boost::shared_ptr<Link> elemIncomingLink = boost::dynamic_pointer_cast<Link>(a);
+            AtomPtr a(elemIncomingHandle);
+            LinkPtr elemIncomingLink(LinkCast(a));
             if (elemIncomingLink->getType() == INHERITANCE_LINK) {
-                if (elemIncomingLink->getArity() == 2 && elemIncomingLink->getOutgoingHandle(0) == elementPredicate) {
-                    Handle targetHandle = elemIncomingLink->getOutgoingHandle(1);
-                    boost::shared_ptr<Atom> targetAtom = atomSpace.cloneAtom(targetHandle);
+                if (elemIncomingLink->getArity() == 2 && elemIncomingLink->getOutgoingAtom(0) == elementPredicate) {
+                    Handle targetHandle = elemIncomingLink->getOutgoingAtom(1);
+                    AtomPtr targetAtom(targetHandle);
                     if (targetAtom->getType() == DEFINED_FRAME_ELEMENT_NODE) {
                         inheritanceLink = elemIncomingHandle;
                         break;
@@ -3595,10 +3771,10 @@ void AtomSpaceUtil::deleteFrameInstance( AtomSpace& atomSpace, Handle frameInsta
 #else
         Handle valueHandle = Handle::UNDEFINED;
         foreach (Handle elemIncomingHandle, elemIncomingSet) {
-            boost::shared_ptr<Atom> a = atomSpace.cloneAtom(elemIncomingHandle);
-            boost::shared_ptr<Link> elemIncomingLink = boost::dynamic_pointer_cast<Link>(a);
+            AtomPtr a(elemIncomingHandle);
+            LinkPtr elemIncomingLink(LinkCast(a));
             if (elemIncomingLink->getType() == EVALUATION_LINK) {
-                if (elemIncomingLink->getArity() == 2 && elemIncomingLink->getOutgoingHandle(0) == elementPredicate) {
+                if (elemIncomingLink->getArity() == 2 && elemIncomingLink->getOutgoingAtom(0) == elementPredicate) {
                     valueHandle = elemIncomingHandle;
                     break;
                 }

@@ -45,6 +45,9 @@ using namespace std;
 
 namespace opencog
 {
+/** \addtogroup grp_spatial
+ *  @{
+ */
     namespace spatial
     {
         class Entity3D;
@@ -90,13 +93,15 @@ namespace opencog
 
             static const int AccessDistance = 2;
 
+            bool enable_BlockEntity_Segmentation;
+
             /**
              * @ min_x and min_y is the start position of this octree space
              * @_floorHeight: the height of the floor, the z value of  start position
              * @_offSet: how many unit per edge in this space, indicating the size of the whole space
              */
             Octree3DMapManager(std::string _mapName, int _xMin, int _yMin, int _zMin, int _xDim, int _yDim, int _zDim, int _floorHeight);
-            ~Octree3DMapManager(){};
+            ~Octree3DMapManager();
 
             //deep clone this octree3DMapManager and return the new instance
             // the cloned octree3DMapManager will have the same octress,blocks and entities,
@@ -136,7 +141,9 @@ namespace opencog
 
             // currently we consider all the none block entities has no collision, agents can get through them
             void addNoneBlockEntity(const Handle &entityNode, BlockVector _centerPosition,
-                                    int _width, int _lenght, int _height, double yaw, std::string _entityName,std::string _entityClass, bool isSelfObject,bool is_obstacle = false);
+                                    int _width, int _lenght, int _height, double yaw, std::string _entityName,std::string _entityClass, bool isSelfObject,unsigned long timestamp,bool is_obstacle = false);
+
+            void updateNoneBLockEntityLocation(const Handle &entityNode, BlockVector _newpos, unsigned long timestamp, bool is_standLocation = false);
 
             void removeNoneBlockEntity(const Handle &entityNode);
 
@@ -195,7 +202,7 @@ namespace opencog
             BlockVector getNearFreePointAtDistance( const BlockVector& position, int distance, const BlockVector& startDirection, bool toBeStandOn = true ) const;
 
             // check whether people can stand on this position or not, which means first there is not any obstacle or block here and there is a block under it.
-            bool checkStandable(BlockVector& pos) const;
+            bool checkStandable(const BlockVector &pos) const;
             bool checkStandable(int x, int y, int z) const;
 
             bool containsObject(const Handle objectNode) const;
@@ -280,6 +287,11 @@ namespace opencog
                                                                    string observerName = ""
                                                                    ) const;
 
+            std::set<SPATIAL_RELATION> computeSpatialRelations( const AxisAlignedBox& boundingboxA,
+                                                                const AxisAlignedBox& boundingboxB,
+                                                                const AxisAlignedBox& boundingboxC = AxisAlignedBox::ZERO,
+                                                                const Entity3D* observer = 0 ) const;
+
             /**
              * Return a string description of the relation
              */
@@ -295,6 +307,8 @@ namespace opencog
             bool checkIsSolid(BlockVector& pos);
             bool checkIsSolid(int x, int y, int z);
 
+            Block3D* getBlockAtLocation(int x, int y, int z);
+
             // return the handle of the unit block in this position
             Handle getUnitBlockHandleFromPosition(const BlockVector &pos);
 
@@ -305,17 +319,14 @@ namespace opencog
 
             bool isAvatarEntity(const Entity3D* entity) const;
 
+            // to recoard all the history locations/ centerPosition for all the nonBlockEntities, the lastest one is push_back
+            // map <EntityHandle, vector< pair < timestamp, location> >
+            map< Handle, vector< pair<unsigned long,BlockVector> > > nonBlockEntitieshistoryLocations;
+
+            // get the last location this nonBlockEntity appeared
+            BlockVector getLastAppearedLocation(Handle entityHandle);
+
         protected:
-
-            // We keep these 2 map for quick search. Memory consuming: 50k blocks take about 10M RAM for one map
-            map<Handle, BlockVector> mAllUnitAtomsToBlocksMap;
-            map<BlockVector,Handle> mAllUnitBlocksToAtomsMap;
-
-            map<int,BlockEntity*> mBlockEntityList;
-            map<int,BlockEntity*> mSuperBlockEntityList;
-            map<Handle, Entity3D*> mAllNoneBlockEntities;
-            map<Handle, Entity3D*> mAllAvatarList;
-            multimap<BlockVector, Entity3D*> mPosToNoneBlockEntityMap;
 
             int mTotalDepthOfOctree;
 
@@ -336,15 +347,28 @@ namespace opencog
 
             Entity3D* selfAgentEntity;
 
+            // We keep these 2 map for quick search. Memory consuming: 50k blocks take about 10M RAM for one map
+            map<Handle, BlockVector> mAllUnitAtomsToBlocksMap;
+            map<BlockVector,Handle> mAllUnitBlocksToAtomsMap;
+
+            map<int,BlockEntity*> mBlockEntityList;
+            map<int,BlockEntity*> mSuperBlockEntityList;
+            map<Handle, Entity3D*> mAllNoneBlockEntities;
+            map<Handle, Entity3D*> mAllAvatarList;
+            multimap<BlockVector, Entity3D*> mPosToNoneBlockEntityMap;
+
             bool getUnitBlockHandlesOfABlock(const BlockVector& _nearLeftPos, int _blockLevel, HandleSeq &handles);
 
+            void _addNonBlockEntityHistoryLocation(Handle entityHandle,BlockVector newLocation, unsigned long timestamp);
+
             // this constructor is only used for clone
-            Octree3DMapManager(int _TotalDepthOfOctree,std::string  _MapName,Octree* _RootOctree, int _FloorHeight, int _AgentHeight,
+            Octree3DMapManager(bool _enable_BlockEntity_Segmentation, int _TotalDepthOfOctree,std::string  _MapName,Octree* _RootOctree, int _FloorHeight, int _AgentHeight,
                                int _TotalUnitBlockNum,AxisAlignedBox& _MapBoundingBox,Entity3D* _selfAgentEntity,map<Handle, BlockVector>& _AllUnitAtomsToBlocksMap,
                                map<BlockVector,Handle>& _AllUnitBlocksToAtomsMap,map<int,BlockEntity*>& _BlockEntityList,map<Handle,
-                               Entity3D*>& _AllNoneBlockEntities,multimap<BlockVector, Entity3D*>& _PosToNoneBlockEntityMap);
+                               Entity3D*>& _AllNoneBlockEntities, map<Handle, vector<pair<unsigned long, BlockVector> > > _nonBlockEntitieshistoryLocations);
 
 
+/*
 #ifdef HAVE_ZMQ
             // using zmq to communicate with the learning server
             string fromLSIP;
@@ -359,10 +383,12 @@ namespace opencog
 #endif // HAVE_ZMQ
 
             bool enableStaticsMapLearning;
+ */
 
         };
 
     }
+/** @}*/
 }
 
 #endif // _SPATIAL_OCTREE3DMAPMANAGER_H

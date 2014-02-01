@@ -21,7 +21,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#include <opencog/util/foreach.h>
 #include <opencog/embodiment/AtomSpaceExtensions/atom_types.h>
+#include <opencog/embodiment/Control/EmbodimentConfig.h>
 
 #include "PredicatesUpdater.h"
 #include "SpatialPredicateUpdater.h"
@@ -32,7 +34,6 @@
 #include "IsPeePlacePredicateUpdater.h"
 #include "IsPickupablePredicateUpdater.h"
 #include "PetPsychePredicatesUpdater.h"
-#include <opencog/embodiment/Control/EmbodimentConfig.h>
 
 // this time frame corresponde to one minute
 static const unsigned long timeWindow = 600;
@@ -48,7 +49,7 @@ PredicatesUpdater::PredicatesUpdater(AtomSpace &_atomSpace, const std::string &_
     updaters.push_back(new IsSmallPredicateUpdater(atomSpace));
     updaters.push_back(new IsNoisyPredicateUpdater(atomSpace));
     updaters.push_back(new IsMovablePredicateUpdater(atomSpace));
-    updaters.push_back(new IsPickupablePredicateUpdater(atomSpace));
+//    updaters.push_back(new IsPickupablePredicateUpdater(atomSpace));
     updaters.push_back(new IsPooPlacePredicateUpdater(atomSpace));
     updaters.push_back(new IsPeePlacePredicateUpdater(atomSpace));
 

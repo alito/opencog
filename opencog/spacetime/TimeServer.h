@@ -25,8 +25,9 @@
 #ifndef _OPENCOG_TIME_SERVER_H
 #define _OPENCOG_TIME_SERVER_H
 
+#include <mutex>
 #include <set>
-#include <boost/signal.hpp>
+#include <boost/signals2.hpp>
 
 #include <opencog/atomspace/AtomSpace.h>
 #include <opencog/spacetime/SpaceServer.h>
@@ -35,8 +36,10 @@
 
 namespace opencog
 {
+/** \addtogroup grp_spacetime
+ *  @{
+ */
 
-class AtomSpaceImpl;
 class TimeServerSavable;
 
 /**
@@ -61,7 +64,7 @@ class TimeServer
     SpaceServer* spaceServer;
 
     // TS-wide mutex, since add/remove atom signals are called from AtomSpace event-loop
-    mutable boost::mutex ts_mutex;
+    mutable std::mutex ts_mutex;
 
 public:
 
@@ -96,7 +99,7 @@ public:
     get(OutputIterator outIt, Handle h, const Temporal& t = UNDEFINED_TEMPORAL,
         TemporalTable::TemporalRelationship criterion = TemporalTable::EXACT) const {
 
-        boost::mutex::scoped_lock lock(ts_mutex);
+        std::unique_lock<std::mutex> lock(ts_mutex);
         HandleTemporalPairEntry* hte = table->get(h, t, criterion);
         HandleTemporalPairEntry* toRemove = hte;
 
@@ -139,7 +142,7 @@ public:
      * @return the Handle of the AtTimeLink added into AtomSpace.
      */
     Handle addTimeInfo(Handle atom, unsigned long timestamp,
-                       const TruthValue& tv = TruthValue::TRUE_TV());
+                       TruthValuePtr tv = TruthValue::TRUE_TV());
 
     /**
      * Adds both the AtTime(TimeNode <t>, atom) atom representation
@@ -152,7 +155,7 @@ public:
      * @return the Handle of the AtTimeLink added into AtomSpace.
      */
     Handle addTimeInfo(Handle atom, const Temporal& t,
-                       const TruthValue& tv = TruthValue::TRUE_TV());
+                       TruthValuePtr tv = TruthValue::TRUE_TV());
 
     /**
      * Adds both the AtTime(TimeNode <timeNodeName>, atom) atom representation into the AtomTable and the
@@ -163,7 +166,7 @@ public:
      * @return the Handle of the AtTimeLink added into the AtomSpace.
      */
     Handle addTimeInfo(Handle h, const std::string& timeNodeName,
-            const TruthValue& tv = TruthValue::TRUE_TV());
+            TruthValuePtr tv = TruthValue::TRUE_TV());
 
     /**
      * Removes both the AtTime(TimeNode <timestamp>, atom) atom
@@ -337,11 +340,11 @@ private:
     /**
      * signal connections used to keep track of atom removal in the SpaceMap
      */
-    boost::signals::connection removedAtomConnection;
-    boost::signals::connection addedAtomConnection;
+    boost::signals2::connection removedAtomConnection;
+    boost::signals2::connection addedAtomConnection;
 
-    void atomAdded(AtomSpaceImpl*, Handle);
-    void atomRemoved(AtomSpaceImpl*, Handle);
+    void atomAdded(Handle);
+    void atomRemoved(AtomPtr);
  
     /**
      * The temporal table used by this TimeServer
@@ -362,6 +365,7 @@ private:
 
 };
 
+/** @}*/
 } // namespace opencog
 
 #endif // _OPENCOG_TIME_SERVER_H

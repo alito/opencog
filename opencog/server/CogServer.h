@@ -28,25 +28,26 @@
 #define _OPENCOG_COGSERVER_H
 
 #include <map>
-#include <queue>
+#include <mutex>
 #include <vector>
 #include <tr1/memory>
 
-#include <pthread.h>
-
-#include <opencog/atomspace/AtomSpace.h>
-#include <opencog/atomspace/AtomTable.h>
+#include <opencog/util/concurrent_queue.h>
 #include <opencog/server/Agent.h>
 #include <opencog/server/BaseServer.h>
 #include <opencog/server/Module.h>
 #include <opencog/server/NetworkServer.h>
 #include <opencog/server/SystemActivityTable.h>
+#include <opencog/server/Request.h>
 #include <opencog/server/Registry.h>
 
 namespace opencog
 {
+/** \addtogroup grp_server
+ *  @{
+ */
 
-typedef std::vector<Agent*> AgentSeq;
+typedef std::vector<AgentPtr> AgentSeq;
 
 /**
  * This class implements the official server used by the opencog framework. It
@@ -117,10 +118,9 @@ protected:
 
     void processAgents();
 
-    pthread_mutex_t messageQueueLock;
-    pthread_mutex_t processRequestsLock;
-    pthread_mutex_t agentsLock;
-    std::queue<Request*> requestQueue;
+    std::mutex processRequestsMutex;
+    std::mutex agentsMutex;
+    concurrent_queue<Request*> requestQueue;
 
     NetworkServer _networkServer;
 
@@ -141,7 +141,7 @@ public:
     virtual ~CogServer(void);
 
     /** Run an Agent and log its activity. */
-    virtual void runAgent(Agent *agent);
+    virtual void runAgent(AgentPtr);
 
     /** Server's main loop. Executed while the 'running' flag is set to true. It
      *  first processes the request queue, then the scheduled agents and finally
@@ -150,12 +150,12 @@ public:
 
     /** Runs a single server loop step.
      *  Made public to be used in unit tests and for debug purposes only*/
-    virtual void runLoopStep(void); 
+    virtual void runLoopStep(void);
 
     /** Customized server loop run. This method is called inside serverLoop
-     *  (between processing request queue and scheduled agents) and can be 
-     *  overwritten by CogServer's subclasses in order to customize the 
-     *  server loop behavior. 
+     *  (between processing request queue and scheduled agents) and can be
+     *  overwritten by CogServer's subclasses in order to customize the
+     *  server loop behavior.
      *
      *  This method controls the execution of server cycles by returning
      *  'true' if the server must run a cycle and 'false' if it must not.
@@ -163,7 +163,7 @@ public:
      *
      *  If EXTERNAL_TICK_MODE config parameter is enabled, serverLoop will not
      *  go sleep at all. So, in this case, this method must be in charge of
-     *  going sleep when the server is idle to prevent excessive cpu 
+     *  going sleep when the server is idle to prevent excessive cpu
      *  consumption. */
     virtual bool customLoopRun(void);
 
@@ -189,7 +189,7 @@ public:
 
     /**** Module API ****/
     /** Loads a dynamic library/module. Takes the filename of the library (.so
-     * or .dll). On Linux/Unix, it the filename may be absolute or relative to
+     * or .dll). On Linux/Unix, the filename may be absolute or relative to
      * the server's RPATH path (which, tipically, should be
      * "INSTALL_PREFIX/lib/opencog") */
     virtual bool loadModule(const std::string& filename);
@@ -198,6 +198,10 @@ public:
      * the Module base class and overriden by the derived module classes. See
      * the documentation in the Module.h file for more details. */
     virtual bool unloadModule(const std::string& id);
+
+
+    /** Lists the modules that are currently loaded. */
+    virtual std::string listModules();
 
     /** Retrieves the module's meta-data (id, filename, load/unload function
      * pointers, etc). Takes the module's id */
@@ -233,17 +237,23 @@ public:
     /** Creates and returns a new instance of an agent of class 'id'. If
      *  'start' is true, then the agent will be automatically added to the list
      *  of scheduled agents. */
-    virtual Agent* createAgent(const std::string& id, const bool start = false);
+    virtual AgentPtr createAgent(const std::string& id, const bool start = false);
+
+    /// Same as above, but returns the correct type.
+    template <typename T>
+    std::shared_ptr<T> createAgent(const bool start = false) {
+        return std::dynamic_pointer_cast<T>(createAgent(T::info().id, start));
+    }
 
     /** Adds agent 'a' to the list of scheduled agents. */
-    virtual void startAgent(Agent* a);
+    virtual void startAgent(AgentPtr a);
 
     /** Removes agent 'a' from the list of scheduled agents. */
-    virtual void stopAgent(Agent* a);
+    virtual void stopAgent(AgentPtr a);
 
     /** Removes agent 'a' from the list of scheduled agents and destroys the
      * instance. This is just a short-cut to 'stopAgent(a); delete a'. */
-    virtual void destroyAgent(Agent*);
+    virtual void destroyAgent(AgentPtr);
 
     /** Destroys all agents from class 'id' */
     virtual void destroyAllAgents(const std::string& id);
@@ -273,13 +283,13 @@ public:
     virtual const RequestClassInfo& requestInfo(const std::string& id) const;
 
     /** Adds request to the end of the requests queue. */
-    virtual void pushRequest(Request* request);
+    void pushRequest(Request* request) { requestQueue.push(request); }
 
     /** Removes and returns the first request from the requests queue. */
-    virtual Request* popRequest(void);
+    Request* popRequest(void) { return requestQueue.pop(); }
 
     /** Returns the requests queue size. */
-    virtual int getRequestQueueSize(void);
+    int getRequestQueueSize(void) { return requestQueue.size(); }
 
     /** Force drain of all outstanding requests */
     void processRequests(void);
@@ -295,6 +305,7 @@ inline CogServer& cogserver(void)
     return dynamic_cast<CogServer&>(server(CogServer::createInstance));
 }
 
+/** @}*/
 }  // namespace
 
 #endif // _OPENCOG_COGSERVER_H

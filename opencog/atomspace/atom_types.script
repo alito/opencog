@@ -7,6 +7,8 @@
 // compiles, that does not mean that these types are unused!  Be sure to grep
 // for the CamelCase names, to see if they show up elsewhere!
 //
+// Some of them are used by Python PLN code (which also uses the CamelCase names).
+//
 // Special type designating that no atom type has been assigned
 NOTYPE
 
@@ -64,6 +66,7 @@ SCHOLEM_LINK <- ORDERED_LINK
 
 // Basic first-order logic operations
 IMPLICATION_LINK <- ORDERED_LINK
+EQUIVALENCE_LINK <- ORDERED_LINK
 
 // To be used with PredicateNode
 EVALUATION_LINK <- ORDERED_LINK
@@ -77,19 +80,10 @@ ASSOCIATIVE_LINK <- ORDERED_LINK
 // Inheritence and association links
 INHERITANCE_LINK <- ORDERED_LINK
 SIMILARITY_LINK <- UNORDERED_LINK
-
-
-// ====================================================================
-// XXX its not clear which of these are in current use ... !?
-// Or who is using these?  Some of these are dead.
-//
-// ExtInh is redundant with SUBSET_LINK and officially disabled
-// EXTENSIONAL_INHERITANCE_LINK <- ORDERED_LINK
-EXTENSIONAL_SIMILARITY_LINK <- ORDERED_LINK
-INTENSIONAL_INHERITANCE_LINK <- ORDERED_LINK
-INTENSIONAL_SIMILARITY_LINK <- ORDERED_LINK
+ATTRACTION_LINK <- ORDERED_LINK
 
 // Procedure, schema and predicate nodes.
+// These are used to define functions and predicates (relations)
 PROCEDURE_NODE <- NODE
 GROUNDED_PROCEDURE_NODE <- PROCEDURE_NODE
 
@@ -115,8 +109,3 @@ EXECUTION_OUTPUT_LINK <- ORDERED_LINK
 // ListLink, to indicate that they are either done, or awaiting
 // processing.
 ANCHOR_NODE <- NODE
-
-// Holder of statistical truth values. 
-// XXX not clear if this is used anywhere ... maybe should remove this.
-COUNT_LINK <- ORDERED_LINK
-

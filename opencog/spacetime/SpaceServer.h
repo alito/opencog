@@ -40,10 +40,9 @@
 #include <string>
 #include <map>
 
-#include <boost/signal.hpp>
+#include <boost/signals2.hpp>
 
 #include <opencog/util/exceptions.h>
-#include <opencog/util/Config.h>
 
 #include <opencog/atomspace/Handle.h>
 #include <opencog/atomspace/TruthValue.h>
@@ -56,9 +55,11 @@
 
 namespace opencog
 {
+/** \addtogroup grp_spacetime
+ *  @{
+ */
 
 class AtomSpace;
-class AtomSpaceImpl;
 class TimeServer;
 class SpaceServerSavable;
 
@@ -216,11 +217,11 @@ private:
     /**
      * signal connections used to keep track of atom removal in the SpaceMap
      */
-    boost::signals::connection removedAtomConnection;
-    boost::signals::connection addedAtomConnection;
+    boost::signals2::connection removedAtomConnection;
+    boost::signals2::connection addedAtomConnection;
 
-    void atomRemoved(AtomSpaceImpl*, Handle);
-    void atomAdded(AtomSpaceImpl*, Handle);
+    void atomRemoved(AtomPtr);
+    void atomAdded(Handle);
 
     // the current scene map, match the spaceMapNodeHandle
     SpaceMap* curMap;
@@ -290,9 +291,9 @@ private:
 
     Handle addPropertyPredicate(
         std::string predicateName,
-        Handle a,
-        Handle b,
-        const TruthValue &tv);
+        Handle,
+        Handle,
+        TruthValuePtr);
 
 
 };
@@ -581,6 +582,7 @@ private:
 //};
 
 
+/** @}*/
 } // namespace opencog
 
 #endif // _OPENCOG_SPACESERVER_H

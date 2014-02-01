@@ -33,15 +33,17 @@ using namespace std;
 demeID_t::demeID_t(unsigned expansion)
     : string(to_string(expansion)) {}
 demeID_t::demeID_t(unsigned expansion, unsigned breadth_first)
-    : string(to_string(expansion) + to_string(breadth_first)) {}
+    : string(to_string(expansion) + "." + to_string(breadth_first)) {}
 
 bool pbscored_combo_tree_greater::operator()(const pbscored_combo_tree& bs_tr1,
                                             const pbscored_combo_tree& bs_tr2) const
 {
     composite_score csc1 = get_composite_score(bs_tr1);
     composite_score csc2 = get_composite_score(bs_tr2);
+
     bool gt = (csc1 > csc2);
     if (gt) return true;
+
     bool lt = (csc1 < csc2);
     if (lt) return false;
 
@@ -50,8 +52,10 @@ bool pbscored_combo_tree_greater::operator()(const pbscored_combo_tree& bs_tr1,
     // anything that compares equal, and we really don't want that.
     score_t sc1 = get_score(csc1);
     score_t sc2 = get_score(csc2);
+
     gt = (sc1 > sc2);
     if (gt) return true;
+
     lt = (sc1 < sc2);
     if (lt) return false;
 
@@ -76,6 +80,7 @@ composite_score& composite_score::operator=(const composite_score &r)
     penalized_score = r.penalized_score;
     complexity_penalty = r.complexity_penalty;
     diversity_penalty = r.diversity_penalty;
+    multiply_diversity = r.multiply_diversity;
     return *this;
 }
 
@@ -99,13 +104,26 @@ bool composite_score::operator<(const composite_score &r) const
                 or (lef == rig and complexity > r.complexity);
 }
 
+// Check for equality, to within floating-point error.
 bool composite_score::operator==(const composite_score &r) const
 {
-    return score == r.get_score()
-        && complexity == r.get_complexity()
-        && complexity_penalty == r.get_complexity_penalty()
-        && diversity_penalty == r.get_diversity_penalty()
-        && penalized_score == r.get_penalized_score();
+    // score_t and complexity_t are both defacto floats.
+    // equality holds if they are equal within about 7 decimal places.
+    // Note: this check is used in iostream_bscored_combo_treeUTest
+    // and a simple equality test will fail on some cpu/os combos.
+    #define FLOAT_EPS 1.0e-7
+    #define CHK_EQ(NAME)  \
+        ((NAME == r.get_##NAME()) || /* Try this cheap test first */ \
+         (fabs(NAME) > 0.0f) ?  \
+            (fabs(r.get_##NAME() / NAME - 1.0f) < FLOAT_EPS) : \
+            (fabs(NAME - r.get_##NAME()) < FLOAT_EPS))
+    return
+        CHK_EQ(score)
+        && CHK_EQ(complexity)
+        && CHK_EQ(complexity_penalty)
+        && CHK_EQ(diversity_penalty)
+        && CHK_EQ(penalized_score)
+        ;
 }
 
 ///////////////////////////
@@ -144,7 +162,7 @@ demeID_t get_demeID(const pbscored_combo_tree& pbst)
 {
     return pbst.second.second;
 }
-        
+
 score_t get_penalized_score(const composite_score& sc)
 {
    return sc.get_penalized_score();

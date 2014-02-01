@@ -16,12 +16,14 @@
 #ifndef _OPENCOG_FOLLOW_LINK_H
 #define _OPENCOG_FOLLOW_LINK_H
 
-#include <opencog/atomspace/Atom.h>
 #include <opencog/atomspace/Link.h>
 #include <opencog/atomspace/Foreach.h>
 
 namespace opencog
 {
+/** \addtogroup grp_atomspace
+ *  @{
+ */
 
 class FollowLink
 {
@@ -73,14 +75,13 @@ private:
 	 */
 	inline bool find_link_type(Handle h)
 	{
-		AtomSpace &as = atomspace();
-
 		// Make sure that the link is of the desired type.
-		if (link_type != as.getType(h)) return false;
+		if (link_type != h->getType()) return false;
 
 		cnt = -1;
 		to_atom = Handle::UNDEFINED;
-		foreach_outgoing_handle(h, &FollowLink::pursue_link, this);
+		LinkPtr l(LinkCast(h));
+		if (l) foreach_outgoing_handle(l, &FollowLink::pursue_link, this);
 		if (to_atom != Handle::UNDEFINED) return true;
 		return false;
 	}
@@ -107,6 +108,7 @@ private:
 	}
 };
 
+/** @}*/
 } // namespace opencog
 
 #endif // _OPENCOG_FOLLOW_LINK_H

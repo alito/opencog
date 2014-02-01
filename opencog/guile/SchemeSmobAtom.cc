@@ -36,12 +36,10 @@ using namespace opencog;
 
 Handle SchemeSmob::verify_handle (SCM satom, const char * subrname, int pos)
 {
-	if (!SCM_SMOB_PREDICATE(SchemeSmob::cog_handle_tag, satom))
+	Handle h(scm_to_handle(satom));
+	if (Handle::UNDEFINED == h)
 		scm_wrong_type_arg_msg(subrname, pos, satom, "opencog atom");
 
-	SCM shandle = SCM_SMOB_OBJECT(satom);
-	UUID uuid = scm_to_ulong(shandle);
-	Handle h(uuid);
 	return h;
 }
 
@@ -81,8 +79,8 @@ SCM SchemeSmob::ss_arity (SCM satom)
 SCM SchemeSmob::ss_tv (SCM satom)
 {
 	Handle h = verify_handle(satom, "cog-tv");
-	TruthValuePtr tv = atomspace->getTV(h);
-	TruthValue *stv = tv->clone();
+	TruthValuePtr tv(h->getTruthValue());
+	TruthValue *stv = tv->rawclone();
 	return take_tv(stv);
 }
 
@@ -91,15 +89,14 @@ SCM SchemeSmob::ss_set_tv (SCM satom, SCM stv)
 	Handle h = verify_handle(satom, "cog-set-tv!");
 	TruthValue *tv = verify_tv(stv, "cog-set-tv!", 2);
 
-	atomspace->setTV(h, *tv);
+	h->setTruthValue(tv->clone());
 	return satom;
 }
 
 SCM SchemeSmob::ss_av (SCM satom)
 {
 	Handle h = verify_handle(satom, "cog-av");
-	const AttentionValue &av = atomspace->getAV(h);
-	AttentionValue *sav = av.clone();
+	AttentionValue *sav = h->getAttentionValue()->rawclone();
 	return take_av(sav);
 }
 
@@ -108,7 +105,7 @@ SCM SchemeSmob::ss_set_av (SCM satom, SCM sav)
 	Handle h = verify_handle(satom, "cog-set-av!");
 	AttentionValue *av = verify_av(sav, "cog-set-av!", 2);
 
-	atomspace->setAV(h, *av);
+	h->setAttentionValue(av->clone());
 	return satom;
 }
 
@@ -184,7 +181,7 @@ SCM SchemeSmob::ss_map_type (SCM proc, SCM stype)
 
 	// Get all of the handles of the indicated type
 	std::list<Handle> handle_set;
-	atomspace->getHandleSet(back_inserter(handle_set), t, false);
+	atomspace->getHandlesByType(back_inserter(handle_set), t, false);
 
 	// Loop over all handles in the handle set.
 	// Call proc on each handle, in turn.

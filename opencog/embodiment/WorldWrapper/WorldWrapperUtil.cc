@@ -37,6 +37,7 @@
 #include <opencog/spacetime/atom_types.h>
 #include <opencog/spacetime/SpaceTime.h>
 
+#include <opencog/embodiment/AtomSpaceExtensions/atom_types.h>
 #include <opencog/embodiment/AtomSpaceExtensions/AtomSpaceUtil.h>
 #include <opencog/embodiment/AtomSpaceExtensions/PredefinedProcedureNames.h>
 #include <opencog/embodiment/Control/PerceptionActionInterface/PAIUtils.h>
@@ -100,7 +101,7 @@ bool WorldWrapperUtil::definite_object_equal(const definite_object& d1,
     }
 }
 
-Handle WorldWrapperUtil::toHandle(const AtomSpace& as,
+Handle WorldWrapperUtil::toHandle(AtomSpace& as,
                                   definite_object obj,
                                   const string& self_id,
                                   const string& owner_id)
@@ -113,7 +114,7 @@ Handle WorldWrapperUtil::toHandle(const AtomSpace& as,
     if (h == Handle::UNDEFINED) {
         //Nil: I add this case because apparently some object have type NODE
         HandleSeq tmp;
-        as.getHandleSet(std::back_inserter(tmp), OBJECT_NODE, id);
+        as.getHandlesByName(std::back_inserter(tmp), id, OBJECT_NODE);
         //unique id assumption
         OC_ASSERT(tmp.size() <= 1);
         return tmp.empty() ? Handle::UNDEFINED : tmp.front();
@@ -133,7 +134,7 @@ std::string WorldWrapperUtil::lookupInheritanceLink(
     seq.push_back(h);
 
     std::vector<Handle> res;
-    as.getHandleSet(back_inserter(res),
+    as.getHandlesByOutgoing(back_inserter(res),
                     seq, NULL, NULL, 2, INHERITANCE_LINK, false);
     if (res.empty())
         return id::null_obj;
@@ -151,7 +152,7 @@ std::string WorldWrapperUtil::lookupExecLink(
     std::vector<Handle> match(3);
     match[0] = h;
     Type t[] = { PREDICATE_NODE, LIST_LINK, LIST_LINK };
-    as.getHandleSet(back_inserter(res), match, t,
+    as.getHandlesByOutgoing(back_inserter(res), match, t,
                     NULL, 3, EXECUTION_LINK, true);
     if (res.empty())
         return id::null_obj;
@@ -181,7 +182,7 @@ pre_it WorldWrapperUtil::maketree_vertex(const vertex& v, std::string h)
     return tmp.begin();
 }
 
-Handle WorldWrapperUtil::rec_lookup(const AtomSpace& as, pre_it it,
+Handle WorldWrapperUtil::rec_lookup(AtomSpace& as, pre_it it,
                                     const string& self_id,
                                     const string& owner_id)
 {
@@ -205,7 +206,7 @@ Handle WorldWrapperUtil::rec_lookup(const AtomSpace& as, pre_it it,
     //otherwise search for a predicate node
     /*
     HandleSeq tmp;
-    as.getHandleSet(std::back_inserter(tmp), PREDICATE_NODE, obj);
+    as.getHandleByName(std::back_inserter(tmp), obj, PREDICATE_NODE);
 
 //    if(tmp.size()==0) //do a dump before failing
 //      as.print();
@@ -236,27 +237,27 @@ Handle WorldWrapperUtil::rec_lookup(const AtomSpace& as, pre_it it,
             as.getHandle(EVALUATION_LINK, args) : Handle::UNDEFINED);
 }
 
-Handle WorldWrapperUtil::selfHandle(const AtomSpace& as,
+Handle WorldWrapperUtil::selfHandle(AtomSpace& as,
                                     const string& self_id)
 {
     //check if it's corresponding to a pet
     return AtomSpaceUtil::getAgentHandle( as, self_id );
 }
 
-Handle WorldWrapperUtil::ownerHandle(const AtomSpace& as,
+Handle WorldWrapperUtil::ownerHandle(AtomSpace& as,
                                      const string& owner_id)
 {
     return getAvatarHandle(as, owner_id);
 }
 
-Handle WorldWrapperUtil::getAvatarHandle(const AtomSpace& as,
+Handle WorldWrapperUtil::getAvatarHandle(AtomSpace& as,
         const string& avatar_id)
 {
     return as.getHandle(AVATAR_NODE, avatar_id);
 }
 
 bool WorldWrapperUtil::inSpaceMap(const SpaceServer::SpaceMap& sm,
-                                  const AtomSpace& as,
+                                  AtomSpace& as,
                                   const string& self_id,
                                   const string& owner_id,
                                   vertex v)
@@ -307,6 +308,27 @@ throw (opencog::ComboException,
 {
 
     std::string res;
+
+    switch (ioe) {
+            case id::pet_home: {
+                printf("Looking up pet_home...\n")    ;
+                res = lookupInheritanceLink(atomSpace, toHandle(atomSpace, "pet_home",
+                                            self_id, owner_id));
+                printf("Pet_home resolved as '%s'\n", res.c_str());
+            } break;
+
+            default: {
+                printf("switch(ioe) defaulted..\n");
+                std::stringstream stream (std::stringstream::out);
+                stream << "Unrecognized indefinite object '"
+                << vertex(ioe) << "'" << std::endl;
+                throw opencog::ComboException(TRACE_INFO,
+                                              "WorldWrapperUtil - %s.",
+                                              stream.str().c_str());
+            }
+        }
+
+
     /*
     SpaceServer::SpaceMapPoint selfLoc;
 
@@ -3094,7 +3116,7 @@ float WorldWrapperUtil::getPhysiologicalFeeling(AtomSpace& atomSpace,
     return value;
 }
 
-float WorldWrapperUtil::getModulator(const AtomSpace & atomSpace,
+float WorldWrapperUtil::getModulator(AtomSpace & atomSpace,
                                      const std::string & modulatorName,
                                      unsigned long time)
 {
@@ -3123,7 +3145,7 @@ float WorldWrapperUtil::getModulator(const AtomSpace & atomSpace,
     return value;
 }
 
-float WorldWrapperUtil::getDemand(const AtomSpace & atomSpace,
+float WorldWrapperUtil::getDemand(AtomSpace & atomSpace,
                                   const std::string & demandName,
                                   unsigned long time)
 {
@@ -3152,7 +3174,7 @@ float WorldWrapperUtil::getDemand(const AtomSpace & atomSpace,
     return value;
 }
 
-float WorldWrapperUtil::getDemandGoalTruthValue(const AtomSpace & atomSpace,
+float WorldWrapperUtil::getDemandGoalTruthValue(AtomSpace & atomSpace,
                                                 const std::string & demand,
                                                 const std::string & self_id,
                                                 unsigned long time)

@@ -57,7 +57,7 @@ unsigned hill_climbing::operator()(deme_t& deme,
 
     // Collect statistics about the run, in struct optim_stats
     nsteps = 0;
-    deme_count ++;
+    demeID = deme.getID();
     over_budget = false;
     struct timeval start;
     gettimeofday(&start, NULL);
@@ -95,15 +95,12 @@ unsigned hill_climbing::operator()(deme_t& deme,
     size_t prev_start = 0;
     size_t prev_size = 0;
     
-    // in crossover mode, temporarily switch back to non-crossover
-    bool rescan = false;
-
     // keep track whether the population generated from the same
     // center has already been crossover. This is to prevent to redo a
     // useless crossover when distance widening is occurs
-    bool already_crossover = false;
+    bool already_xover = false;
     
-    // try a last rescan if the last crossover was not effective
+    // try a last crossover if no improvements (it's cheap)
     bool last_chance = false;
 
     // Whether the score has improved during an iteration
@@ -112,15 +109,15 @@ unsigned hill_climbing::operator()(deme_t& deme,
         ++iteration;
         logger().debug("Iteration: %u", iteration);
 
-        // Estimate the number of neighbours at the distance d.
+        // Estimate the number of neighbors at the distance d.
         // This is faster than actually counting.
-        size_t total_number_of_neighbours =
+        size_t total_number_of_neighbors =
             estimate_neighborhood(distance, fields);
 
         // Number of instances to try, this go-around.
         size_t number_of_new_instances =
             n_new_instances(distance, max_evals, current_number_of_instances,
-                            total_number_of_neighbours);
+                            total_number_of_neighbors);
 
         // The first few times through, (or, if we decided on a full
         // rescan), explore the entire nearest neighborhood.
@@ -142,45 +139,62 @@ unsigned hill_climbing::operator()(deme_t& deme,
         // intentionally over-estimates by a factor of two. So the
         // breakeven point would be 2*crossover_pop_size, and we pad this
         // a bit, as small exhaustive searches do beat guessing...
-        size_t crossover_min_neighbours = 10*(hc_params.crossover_pop_size/3);
+        size_t xover_min_neighbors = hc_params.crossover_min_neighbors;
         //
         // current_number_of_instances can drop as low as 1 if the
         // population trimmer wiped out everything, which can happen.
         // Anyway, cross-over generates nothing when its that small.
-        size_t crossover_min_deme = 3;
+        size_t xover_min_deme = 3;
 
         // whether crossover must be attempted for the current iteration
-        bool large_nbh = total_number_of_neighbours >= crossover_min_neighbours,
+        bool large_nbh = total_number_of_neighbors >= xover_min_neighbors,
             xover = hc_params.crossover
-            && !already_crossover
             && (iteration > 2)
-            && !rescan
-            && current_number_of_instances >= crossover_min_deme
+            && !already_xover
+            && current_number_of_instances >= xover_min_deme
             && (large_nbh || last_chance);
 
         if (xover) {
+            // log why crossover is enabled
+            stringstream why_xover;
+            if (large_nbh)
+                why_xover << "too large neighborhood "
+                          << total_number_of_neighbors << ">="
+                          << xover_min_neighbors;
+            else if (last_chance)
+                why_xover << "last chance";
+            else
+                OC_ASSERT(false, "There must be a bug");
+            logger().debug() << "Crossover enabled ("
+                             << why_xover.str() << ")";
+
             number_of_new_instances =
                 crossover(deme, current_number_of_instances,
                           prev_start, prev_size, prev_center);
 
-            // why is cross over enabled?
-            stringstream why_xover;
-            if (large_nbh)
-                why_xover << "too large neighborhood "
-                          << total_number_of_neighbours << ">="
-                          << crossover_min_neighbours;
-            else if (last_chance)
-                why_xover << "last chance";
-            // log crossover and why
-            logger().debug() << "Crossover enabled for that iteration ("
-                             << why_xover.str() << ")";
-
-            already_crossover = true;
+            already_xover = true;
         } else {
+            // log why crossover is disabled
+            stringstream whynot_xover;
+            if (!hc_params.crossover)
+                whynot_xover << "user option";
+            else if (iteration <= 2)
+                whynot_xover << "first 2 iterations";
+            else if (already_xover)
+                whynot_xover << "already done from that center";
+            else if (current_number_of_instances < xover_min_deme)
+                whynot_xover << "not enough instances to cross";
+            else if (!large_nbh)
+                whynot_xover << "small enough neighborhood for full search";
+            else
+                OC_ASSERT(false, "There must be a bug");
+            logger().debug() << "Crossover disabled ("
+                             << whynot_xover.str() << ")";
+            
             // The current_number_of_instances arg is needed only to
             // be able to manage the size of the deme appropriately.
             number_of_new_instances =
-                sample_new_instances(total_number_of_neighbours,
+                sample_new_instances(total_number_of_neighbors,
                                      number_of_new_instances,
                                      current_number_of_instances,
                                      center_inst, deme, distance);
@@ -190,26 +204,31 @@ unsigned hill_climbing::operator()(deme_t& deme,
         prev_center = center_inst;
 
         auto deme_from = next(deme.begin(), current_number_of_instances);
-        auto deme_inst_from = next(deme.begin_instances(), current_number_of_instances);
-        auto deme_score_from = next(deme.begin_scores(), current_number_of_instances);
+        auto deme_inst_from = next(deme.begin_instances(),
+                                   current_number_of_instances);
+        auto deme_score_from = next(deme.begin_scores(),
+                                    current_number_of_instances);
 
         // log neighborhood distance
         if (logger().isDebugEnabled()) {
             stringstream nbh_dst;
-            nbh_dst << "Evaluate " << number_of_new_instances << " neighbors ";
-            if (xover) {
-                // compute the min and max hamming distances between the
-                // center instance and the crossed-over instances
-                vector<int> dst_seq;
-                transform(deme_inst_from, deme.end_instances(), back_inserter(dst_seq),
-                          [&](const instance& inst) {
-                              return deme.fields().hamming_distance(inst, center_inst);
-                          });
-                auto pmm = boost::minmax_element(dst_seq.begin(), dst_seq.end());
-                nbh_dst << "from distance " << *pmm.first << " to " << *pmm.second;
+            nbh_dst << "Evaluate " << number_of_new_instances << " neighbors";
+            if (number_of_new_instances > 0) {
+                if (xover) {
+                    // compute the min and max hamming distances between the
+                    // center instance and the crossed-over instances
+                    auto dst_from_center = [&](const instance& inst) {
+                        return deme.fields().hamming_distance(inst, center_inst);
+                    };
+                    vector<int> dsts;
+                    transform(deme_inst_from, deme.end_instances(),
+                              back_inserter(dsts), dst_from_center);
+                    auto pmm = boost::minmax_element(dsts.begin(), dsts.end());
+                    nbh_dst << " from distance " << *pmm.first
+                            << " to " << *pmm.second;
+                }
+                else nbh_dst << " at distance " << distance;
             }
-            else nbh_dst << "at distance " << distance;
-
             logger().debug(nbh_dst.str());
         }
 
@@ -251,7 +270,7 @@ unsigned hill_climbing::operator()(deme_t& deme,
         // Make a copy of the best instance.
         if (has_improved) {
             center_inst = deme[ibest].first;
-            already_crossover = false;
+            already_xover = false;
         }
 
 #ifdef GATHER_STATS
@@ -335,7 +354,7 @@ unsigned hill_climbing::operator()(deme_t& deme,
                 }
             }
         }
-        else
+        else if (!xover)
             distance++;
 
         // Collect statistics about the run, in struct optim_stats
@@ -354,7 +373,7 @@ unsigned hill_climbing::operator()(deme_t& deme,
             ram_usage *= _instance_bytes;
             ram_usage /= 1024 * 1024;
             logger().info() << hc_params.prefix_stat_deme << ": "
-                << deme_count << "\t"
+                << demeID << "\t"
                 << iteration << "\t"
                 << total_steps << "\t"
                 << total_evals << "\t"
@@ -410,34 +429,22 @@ unsigned hill_climbing::operator()(deme_t& deme,
              */
             bool big_step = opt_params.score_improved(best_score, prev_hi);
             if (!big_step && !last_chance) {
-
-                /* If we've been using the simplex extrapolation
-                 * (crossover), and there's been no improvement, then
-                 * try a full nearest- neighborhood scan.  This tends
-                 * to refresh the pool of candidates, and keep things
-                 * going a while longer.
-                 */
-                if (!rescan && xover) {
-                    rescan = true;
-                    distance = 1;
-                    continue;
-                }
-
                 /* If we just did the nearest neighbors, and found no
                  * improvement, then try again with the simplexes.  That's
                  * cheap & quick and one last chance to get lucky ...
                  */
-                if (rescan || !xover) {
-                    rescan = false;
+                if (!already_xover
+                    // in the case we can widen the search check that
+                    // the max distance has been reached, otherwise,
+                    // it's not really a last_change
+                    && (!hc_params.widen_search || max_distance < distance)) {
                     last_chance = true;
-                    distance = 1;
                     continue;
                 }
             }
 
             /* Reset back to normal mode. */
             has_improved = big_step;
-            rescan = false;
             last_chance = false;
         }
 
@@ -473,9 +480,21 @@ size_t hill_climbing::estimate_neighborhood(size_t distance,
         return 1;
     
     const size_t nn_estimate = information_theoretic_bits(fields);
+
+    if (nn_estimate < distance) {
+        logger().warn("hill_climbing::estimate_neighborhood : "
+                      "the distance %u is greater than the "
+                      "theoretic bit field size %u. This could be a bug "
+                      "(but not necessarily due to corner cases "
+                      "and the fact that it's an approximation of the actual "
+                      "field size)", distance, nn_estimate);
+        distance = nn_estimate;
+    }
+
     if (distance == 1)
         return 2*nn_estimate; // be large given nn_estimate is only... an estimate
     else {  // more than one
+
         // Distances greater than 1 occurs only when the -L1 or
         // -T1 flags are used.  This puts this algo into a very
         // different mode of operation, in an attempt to overcome
@@ -490,12 +509,12 @@ size_t hill_climbing::estimate_neighborhood(size_t distance,
 
 size_t hill_climbing::n_new_instances(size_t distance, unsigned max_evals,
                                       size_t current_number_of_evals,
-                                      size_t total_number_of_neighbours)
+                                      size_t total_number_of_neighbors)
 {
     if (distance == 0)
         return 1;
     
-    size_t number_of_new_instances = total_number_of_neighbours;
+    size_t number_of_new_instances = total_number_of_neighbors;
     
     // binomial coefficient has a combinatoric explosion to the power
     // distance. So throttle back by fraction raised to power dist.
@@ -557,18 +576,18 @@ size_t hill_climbing::n_new_instances(size_t distance, unsigned max_evals,
         }
     }
 
-    logger().debug("Budget %u samples out of estimated %u neighbours",
-                   number_of_new_instances, total_number_of_neighbours);
+    logger().debug("Budget %u samples out of estimated %u neighbors",
+                   number_of_new_instances, total_number_of_neighbors);
 
     return number_of_new_instances;
 }
 
 size_t hill_climbing::cross_top_one(deme_t& deme,
-                          size_t deme_size,
-                          size_t num_to_make,
-                          size_t sample_start,
-                          size_t sample_size,
-                          const instance& base)
+                                    size_t deme_size,
+                                    size_t num_to_make,
+                                    size_t sample_start,
+                                    size_t sample_size,
+                                    const instance& base)
 {
     OC_ASSERT (sample_size > 0, "Cross-over sample size must be positive");
     if (sample_size-1 < num_to_make) num_to_make = sample_size-1;
@@ -598,11 +617,11 @@ size_t hill_climbing::cross_top_one(deme_t& deme,
 
 /** two-dimensional simplex version of above. */
 size_t hill_climbing::cross_top_two(deme_t& deme,
-                          size_t deme_size,
-                          size_t num_to_make,
-                          size_t sample_start,
-                          size_t sample_size,
-                          const instance& base)
+                                    size_t deme_size,
+                                    size_t num_to_make,
+                                    size_t sample_start,
+                                    size_t sample_size,
+                                    const instance& base)
 {
     // sample_size choose two.
     unsigned max = sample_size * (sample_size-1) / 2;
@@ -639,11 +658,11 @@ size_t hill_climbing::cross_top_two(deme_t& deme,
 
 /** three-dimensional simplex version of above. */
 size_t hill_climbing::cross_top_three(deme_t& deme,
-                          size_t deme_size,
-                          size_t num_to_make,
-                          size_t sample_start,
-                          size_t sample_size,
-                          const instance& base)
+                                      size_t deme_size,
+                                      size_t num_to_make,
+                                      size_t sample_start,
+                                      size_t sample_size,
+                                      const instance& base)
 {
     // sample_size choose three.
     unsigned max = sample_size * (sample_size-1) * (sample_size-2) / 6;
@@ -798,7 +817,7 @@ bool hill_climbing::resize_deme(deme_t& deme, score_t best_score)
 
 void hill_climbing::log_stats_legend() {
     logger().info() << hc_params.prefix_stat_deme << ": # "   /* Legend for graph stats */
-        "deme_count\t"
+        "demeID\t"
         "iteration\t"
         "total_steps\t"
         "total_evals\t"

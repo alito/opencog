@@ -40,6 +40,8 @@ IF (CMAKE_BUILD_TYPE STREQUAL "")
 	SET(CMAKE_BUILD_TYPE Release)
 ENDIF (CMAKE_BUILD_TYPE STREQUAL "")
 
+MESSAGE(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+
 # add the 'lib' dir to cmake's module search path
 SET(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/lib/")
 
@@ -124,6 +126,16 @@ ADD_DEFINITIONS(-DPROJECT_SOURCE_DIR=\\"${CMAKE_SOURCE_DIR}\\"
 # ===================================================================
 # Check for existance of various required, optional packages.
 
+# Look for binutils-dev. Needed for pretty stack printing.
+FIND_PACKAGE(BFD)
+IF (BFD_FOUND)
+	MESSAGE(STATUS "Binutils found.")
+	ADD_DEFINITIONS(-DHAVE_BFD)
+	SET(HAVE_BFD 1)
+ELSE (BFD_FOUND)
+	MESSAGE(STATUS "Binutils-dev missing: No pretty stack-trace printing.")
+ENDIF (BFD_FOUND)
+
 # Check for boost. We need dynamic-linked, threaded libs by default.
 SET(Boost_USE_STATIC_LIBS OFF)
 SET(Boost_USE_MULTITHREADED ON)
@@ -131,7 +143,19 @@ SET(Boost_USE_MULTITHREADED ON)
 # Required boost packages
 # hypertable requires boost iostreams
 # boost-1.49 no longer has a libboost_iostreams
-FIND_PACKAGE(Boost 1.45 COMPONENTS date_time filesystem regex serialization signals system thread REQUIRED)
+# 1.46 is minimum for required filesystem support
+# program_options needed by some combo utilities
+FIND_PACKAGE(Boost 1.46 COMPONENTS date_time filesystem program_options regex serialization system thread REQUIRED)
+
+IF(Boost_FOUND)
+	SET(Boost_FOUND_SAVE 1)
+
+	# Boost.Signals2 requires this in signal_type.hpp
+	SET(BOOST_PARAMETER_MAX_ARITY 7)
+	ADD_DEFINITIONS(-DBOOST_PARAMETER_MAX_ARITY=${BOOST_PARAMETER_MAX_ARITY})
+ELSE(Boost_FOUND)
+	MESSAGE(FATAL_ERROR "Boost 1.46 or newer is needed to build OpenCog!")
+ENDIF(Boost_FOUND)
 
 # Opencog won't compile with Boost 1.51, some kind of conflict with
 # hash functions, see github bugs 1 and 36
@@ -141,9 +165,13 @@ ENDIF(105100 EQUAL ${Boost_VERSION})
 MESSAGE(STATUS "Boost version ${Boost_VERSION} found.")
 
 # Optional boost packages; can build without these.
-# Arghhh. Except cmake is treating these as required, not optional. #$%**&
-FIND_PACKAGE(Boost 1.45 COMPONENTS python program_options QUIET)
-FIND_PACKAGE(Boost 1.45 COMPONENTS math_c99 QUIET)
+FIND_PACKAGE(Boost 1.46 COMPONENTS python program_options QUIET)
+FIND_PACKAGE(Boost 1.46 COMPONENTS math_c99 QUIET)
+
+# Arghhh. Except cmake is treating above as required, not optional. #$%**&
+IF(Boost_FOUND_SAVE)
+	SET(Boost_FOUND 1)
+ENDIF(Boost_FOUND_SAVE)
 
 IF(Boost_PROGRAM_OPTIONS_FOUND)
   MESSAGE(STATUS "Found Boost::program_options")
@@ -163,25 +191,42 @@ IF (NOT CURL_FOUND)
 ENDIF (NOT CURL_FOUND)
 
 # XML parsing library
+# At this time (November 2013) it looks like no one is using this.
+# The old NMXML code needed this, but its broken.
+# The old C++ PLN needed this, but that's broken too.
+# This check shoud probably be removed someday ... 
 FIND_PACKAGE(EXPAT)
 IF (EXPAT_FOUND)
 	MESSAGE(STATUS "Expat XML parser found.")
 	ADD_DEFINITIONS(-DHAVE_EXPAT)
 	SET(HAVE_EXPAT 1)
 ELSE (EXPAT_FOUND)
-	MESSAGE(STATUS "Expat XML parser missing: needed for embodiment.")
+	MESSAGE(STATUS "Expat XML parser missing: but no one needs it anyway.")
 ENDIF (EXPAT_FOUND)
 
 # Gnu Scientific Library
 FIND_PACKAGE(GSL)
 IF (GSL_FOUND)
+	MESSAGE(STATUS "GSL found.")
 	ADD_DEFINITIONS(-DHAVE_GSL)
 	SET(HAVE_GSL 1)
+ELSE (GSL_FOUND)
+	MESSAGE(STATUS "GSL missing: needed for the AtomSpace.")
 ENDIF (GSL_FOUND)
 
 # This is required for Guile
 FIND_LIBRARY(GMP_LIBRARY gmp)
 FIND_PATH(GMP_INCLUDE_DIR gmp.h)
+
+# Gtk-3 required for visualization
+FIND_PACKAGE(GTK3)
+IF (GTK3_FOUND)
+	# MESSAGE(STATUS "GTK3 found.")
+	ADD_DEFINITIONS(-DHAVE_GTK)
+	SET(HAVE_GTK 1)
+ELSE (GTK3_FOUND)
+	MESSAGE(STATUS "GTK missing: needed for the the gtk-visualizer.")
+ENDIF (GTK3_FOUND)
 
 # Gnu Guile scheme interpreter
 # Versions prior to 1.8.6 have assorted serious problems with
@@ -291,7 +336,7 @@ MESSAGE(STATUS "${PROTOBUF_DIR_MESSAGE}")
 
 # Python needed for embodiment (!?) and for PLN
 FIND_PACKAGE(PythonInterp)
-FIND_PACKAGE(PythonLibs)
+FIND_PACKAGE(PythonLibs 2.7 REQUIRED)
 IF(PYTHONLIBS_FOUND)
 	MESSAGE(STATUS "Python libs found.")
 ELSE(PYTHONLIBS_FOUND)
@@ -301,13 +346,12 @@ ENDIF(PYTHONLIBS_FOUND)
 # Python bindings using Cython
 # Cython is used to generate bindings
 FIND_PROGRAM(CYTHON_EXECUTABLE cython)
-FIND_PROGRAM(NOSETESTS_EXECUTABLE nosetests)
 IF (CYTHON_EXECUTABLE AND PYTHONLIBS_FOUND)
    # find python destination dir for python bindings
    ADD_DEFINITIONS(-DHAVE_CYTHON)
    SET(HAVE_CYTHON 1)
    EXECUTE_PROCESS(
-	   COMMAND ${PYTHON_EXECUTABLE} -c "from distutils.sysconfig import *; print get_python_lib()"
+       COMMAND ${PYTHON_EXECUTABLE} -c "from distutils.sysconfig import *;print(get_python_lib())"
 		OUTPUT_VARIABLE PYTHON_DEST
    )
 
@@ -323,6 +367,12 @@ ELSE (CYTHON_EXECUTABLE AND PYTHONLIBS_FOUND)
 		MESSAGE(STATUS "Cython executable not found.")
 	ENDIF(NOT CYTHON_EXECUTABLE)
 ENDIF (CYTHON_EXECUTABLE AND PYTHONLIBS_FOUND)
+
+# Nosetests will find and automatically run python tests.
+FIND_PROGRAM(NOSETESTS_EXECUTABLE nosetests)
+IF (NOSETESTS_EXECUTABLE)
+   SET(HAVE_NOSETESTS 1)
+ENDIF (NOSETESTS_EXECUTABLE)
 
 # SDL needed for the spatial tools
 FIND_PACKAGE(SDL)
@@ -438,7 +488,6 @@ ENDIF(Boost_FOUND)
 IF(GSL_FOUND AND HAVE_UTIL)
     SET(HAVE_ATOMSPACE 1)
     SET(HAVE_ATTENTION 1)
-#    SET(HAVE_PLN 1)
     SET(HAVE_DIMEMBED 1)
 ENDIF(GSL_FOUND AND HAVE_UTIL)
 
@@ -446,6 +495,7 @@ IF(Boost_PROGRAM_OPTIONS_FOUND AND OPENGL_FOUND AND SDL_FOUND AND SDLGFX_FOUND)
 	SET(HAVE_SPATIAL_TOOLS 1)
 ENDIF(Boost_PROGRAM_OPTIONS_FOUND AND OPENGL_FOUND AND SDL_FOUND AND SDLGFX_FOUND)
 
+# FYI, at this time, no part of opencog depends on expat being installed!
 IF(EXPAT_FOUND AND HAVE_ATOMSPACE)
 	SET(HAVE_XML 1)
 ENDIF(EXPAT_FOUND AND HAVE_ATOMSPACE)
@@ -453,10 +503,6 @@ ENDIF(EXPAT_FOUND AND HAVE_ATOMSPACE)
 IF(HAVE_ATOMSPACE)
 	SET(HAVE_SERVER 1)
 ENDIF(HAVE_ATOMSPACE)
-
-IF(HAVE_SERVER) # because web depends on server
-	SET(HAVE_WEB 1)
-ENDIF(HAVE_SERVER)
 
 IF(HAVE_ATOMSPACE AND ODBC_FOUND) # SQL persistance
 	SET(HAVE_PERSIST 1)
@@ -525,8 +571,8 @@ SET(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
 SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib/opencog")
 SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
-ADD_SUBDIRECTORY(opencog)
 ADD_SUBDIRECTORY(lib)
+ADD_SUBDIRECTORY(opencog)
 
 ADD_CUSTOM_TARGET(tests)
 ADD_SUBDIRECTORY(tests EXCLUDE_FROM_ALL)
@@ -560,9 +606,16 @@ ELSE (CMAKE_BUILD_TYPE STREQUAL "Coverage")
 ENDIF (CMAKE_BUILD_TYPE STREQUAL "Coverage")
 
 ADD_SUBDIRECTORY(examples EXCLUDE_FROM_ALL)
+
 IF (NOT WIN32)
 	ADD_CUSTOM_TARGET (examples
-		COMMAND ${CMAKE_BUILD_TOOL}
+		# using CMAKE_BUILD_TOOL results in teh cryptic error message
+		# warning: jobserver unavailable: using -j1.  Add `+' to parent make rule.
+		# This is because make doesn't know how to pass jobserver args to
+		# the submake.  So, instead, just use $(MAKE) (with round parens)
+		# -- that will do the right thing.
+		# COMMAND ${CMAKE_BUILD_TOOL} 
+		COMMAND $(MAKE) 
 		WORKING_DIRECTORY examples
 		COMMENT "Building examples"
 	)
@@ -650,55 +703,30 @@ INCLUDE(CPack)
 
 # documentation
 FIND_PACKAGE(Doxygen)
-IF (DOXYGEN_FOUND)
-    # doc dir has no CMakeList.txt
-    #ADD_SUBDIRECTORY(doc EXCLUDE_FROM_ALL)
-	EXECUTE_PROCESS(
-		WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-		# COMMAND bzr nick
-		# This will get the current branch name; I think that is what is wanted?
-		COMMAND git rev-parse --abbrev-ref HEAD
-		OUTPUT_VARIABLE BZR_NICK OUTPUT_STRIP_TRAILING_WHITESPACE)
-	EXECUTE_PROCESS(
-		WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-		# I dunno, git doesn't have anything analogous to bzr revno...
-		# COMMAND bzr revno
-		# COMMAND git describe
-		COMMAND git rev-parse HEAD
-		OUTPUT_VARIABLE BZR_REVNO OUTPUT_STRIP_TRAILING_WHITESPACE)
-	CONFIGURE_FILE(
-		${PROJECT_SOURCE_DIR}/doc/doxygen.conf.in
-		${CMAKE_CURRENT_BINARY_DIR}/Doxyfile)
-	ADD_CUSTOM_TARGET (
-		doxygen
-		COMMAND ${DOXYGEN} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile
-		WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-		COMMENT "Generating documentation"
-	)
-ELSE (DOXYGEN_FOUND)
-    MESSAGE(STATUS "Doxygen not found, you won't be able to generate API documentation.")
-ENDIF (DOXYGEN_FOUND)
+ADD_SUBDIRECTORY(doc EXCLUDE_FROM_ALL)
 
 # Show a summary of what we got
-
-
 SUMMARY_ADD("AtomSpace" "A weighted and typed hypergraph database" HAVE_ATOMSPACE)
 SUMMARY_ADD("Attention" "Agents for attention allocation dynamics" HAVE_ATTENTION)
 SUMMARY_ADD("ComboReduct" "Library for reduction of combo program trees" HAVE_COMBOREDUCT)
-SUMMARY_ADD("CythonBinding" "Cython (python) bindings" HAVE_CYTHON)
+SUMMARY_ADD("Cython bindings" "Cython (python) bindings" HAVE_CYTHON)
 SUMMARY_ADD("Dim. Embedding" "Compute dimensional embedding of the AtomSpace" HAVE_DIMEMBED)
 SUMMARY_ADD("Doxygen" "Code documentation" DOXYGEN_FOUND)
 SUMMARY_ADD("Embodiment" "Architecture for embodiment" HAVE_EMBODIMENT)
-SUMMARY_ADD("FeatureSelection" "MOSES based feature selection tool" HAVE_FEATURE_SELECTION)
+SUMMARY_ADD("Feature selection" "MOSES based feature selection tool" HAVE_FEATURE_SELECTION)
+SUMMARY_ADD("GTK Visualizer" "GTK3-based Atomspace Visualizer" HAVE_GTK)
 SUMMARY_ADD("Hypertable" "HyperTable for scalable persistance (experimental)" HAVE_HYPERTABLE)
 SUMMARY_ADD("MOSES" "Meta-Optimizing Semantic Evolutionary Search" HAVE_MOSES)
-#SUMMARY_ADD("PLN" "Probalistic Logic Networks" HAVE_PLN)
-SUMMARY_ADD("SchemeBinding" "Scheme bindings and shell" HAVE_GUILE)
+SUMMARY_ADD("Python tests" "Python bindings nose tests" HAVE_NOSETESTS)
+SUMMARY_ADD("Scheme bindings" "Scheme bindings and shell" HAVE_GUILE)
 SUMMARY_ADD("Server" "The CogServer" HAVE_SERVER)
 SUMMARY_ADD("Spatial" "Vizualisation of the 3D spacemap" HAVE_SPATIAL_TOOLS)
-SUMMARY_ADD("SQL Persist" "Interfaces for SQL persistance of the AtomSpace" HAVE_PERSIST)
+SUMMARY_ADD("SQL persistance" "Save/Restore of AtomSpace to database" HAVE_PERSIST)
+SUMMARY_ADD("StackPrint" "Pretty printing of stack traces" HAVE_BFD)
 SUMMARY_ADD("Ubigraph" "Visualisation of the AtomSpace" HAVE_UBIGRAPH)
 SUMMARY_ADD("Util" "General utility library" HAVE_UTIL)
 SUMMARY_ADD("Viterbi" "Viterbi Parser for Link Grammar" HAVE_VITERBI)
-SUMMARY_ADD("WebInterface" "Web server and REST API" HAVE_WEB)
+SUMMARY_ADD("ZMQ" "ZMQ-based OAC GUI reports" HAVE_ZMQ)
 SUMMARY_SHOW()
+
+

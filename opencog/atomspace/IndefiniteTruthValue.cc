@@ -38,10 +38,10 @@
 
 using namespace opencog;
 
-float IndefiniteTruthValue::DEFAULT_CONFIDENCE_LEVEL = 0.9;
-float IndefiniteTruthValue::DEFAULT_K = 2.0;
-float IndefiniteTruthValue::diffError = 0.001;
-float IndefiniteTruthValue::s = 0.5;
+confidence_t IndefiniteTruthValue::DEFAULT_CONFIDENCE_LEVEL = 0.9;
+count_t IndefiniteTruthValue::DEFAULT_K = 2.0;
+strength_t IndefiniteTruthValue::diffError = 0.001;
+strength_t IndefiniteTruthValue::s = 0.5;
 
 
 // Formula defined in the integral of step one [(x-L1)^ks * (U1-x)^k(1-s)
@@ -122,34 +122,6 @@ IndefiniteTruthValue::IndefiniteTruthValue(strength_t l, strength_t u,
 IndefiniteTruthValue::IndefiniteTruthValue(IndefiniteTruthValue const& source)
 {
     copy(source);
-}
-
-IndefiniteTruthValue* IndefiniteTruthValue::clone() const
-{
-    return new IndefiniteTruthValue(*this);
-}
-
-IndefiniteTruthValue& IndefiniteTruthValue::operator=(const TruthValue & rhs)
-    throw (RuntimeException)
-{
-    const IndefiniteTruthValue* tv =
-        dynamic_cast<const IndefiniteTruthValue*>(&rhs);
-    if (tv) {
-        if (tv != this) { // check if this is the same object first.
-            copy(*tv);
-        }
-    } else {
-#ifndef WIN32
-        // The following line was causing a compilation error on MSVC...
-        throw RuntimeException(TRACE_INFO,
-                               "Cannot assign a TV of type '%s' to one of type '%s'\n",
-                               typeid(rhs).name(), typeid(*this).name());
-#else
-        throw RuntimeException(TRACE_INFO,
-                               "Invalid assignment of a IndefiniteTV object\n");
-#endif
-    }
-    return *this;
 }
 
 bool IndefiniteTruthValue::operator==(const TruthValue& rhs) const
@@ -340,25 +312,3 @@ std::string IndefiniteTruthValue::toString() const
             symmetric);
     return buf;
 }
-
-IndefiniteTruthValue* IndefiniteTruthValue::fromString(const char* tvStr)
-{
-    float m, l, u, c, d;
-    int s;
-    sscanf(tvStr, "[%f,%f,%f,%f,%f,%d]", &m, &l, &u, &c, &d, &s);
-    DPRINTF("IndefiniteTruthValue::fromString(%s) => mean = %f, L = %f, U = %f, confLevel = %f, diff = %f, symmetric = %d\n", tvStr, m, l, u, c, d, s);
-    IndefiniteTruthValue* result =
-        new IndefiniteTruthValue(static_cast<strength_t>(l),
-                                 static_cast<strength_t>(u),
-                                 static_cast<confidence_t>(c));
-    result->setDiff(static_cast<strength_t>(d));
-    result->symmetric = s != 0;
-    result->setMean(static_cast<strength_t>(m));
-    return result;
-}
-
-float IndefiniteTruthValue::toFloat() const
-{
-    return static_cast<float>(getMean());
-}
-

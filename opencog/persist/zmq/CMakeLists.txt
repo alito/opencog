@@ -1,0 +1,8 @@
+
+IF (HAVE_ZMQ)
+
+ADD_SUBDIRECTORY (atomspace)
+ADD_SUBDIRECTORY (events)
+
+ENDIF (HAVE_ZMQ)
+

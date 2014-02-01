@@ -51,10 +51,12 @@
 namespace opencog { namespace combo {
 
 /**
- * Get indices (aka positions or offsets) of a list of labels given a header
+ * Get indices (aka positions or offsets) of a list of labels given a
+ * header. The labels can be sequenced in any order, it will always
+ * return the order consistent with the header.
  */
 std::vector<unsigned> get_indices(const std::vector<std::string>& labels,
-                                  const std::vector<std::string>& sub_labels);
+                                  const std::vector<std::string>& header);
         
 ///////////////////
 // Generic table //
@@ -238,21 +240,25 @@ struct get_type_tree_at_visitor : public boost::static_visitor<type_tree> {
     }    
     size_t _pos;
 };
+
 /**
- * Interpreter visitor, depending on the type of the row choose which
- * interpreter to use. Note that returning the same type (here vertex)
- * is not the right long term solution, it should return the type
- * returned by the interpreter, however given the way Tables are
- * implemented it makes sense for now.
+ * Interpreter visitor.
+ * Chooses the interpreter type, based on the types of the input columns.
+ * Note that the choice of the correct interpreter also depends on the
+ * output type, which is currently not handled here. XXX FIXME.
  */
-struct interpreter_visitor : public boost::static_visitor<vertex> {
+struct interpreter_visitor : public boost::static_visitor<vertex>
+{
     interpreter_visitor(const combo_tree& tr) : _it(tr.begin()) {}
     interpreter_visitor(const combo_tree::iterator& it) : _it(it) {}
     vertex operator()(const std::vector<builtin>& inputs) {
         return boolean_interpreter(inputs)(_it);
     }    
     vertex operator()(const std::vector<contin_t>& inputs) {
-        return contin_interpreter(inputs)(_it);
+        // Can't use contin, since the output might be non-contin,
+        // e.g. a boolean, or an enum.  
+        // return contin_interpreter(inputs)(_it);
+        return mixed_interpreter(inputs)(_it);
     }    
     vertex operator()(const std::vector<vertex>& inputs) {
         return mixed_interpreter(inputs)(_it);
@@ -317,6 +323,9 @@ struct multi_type_seq : public boost::less_than_comparable<multi_type_seq>,
     void erase_at(size_t pos) {
         boost::apply_visitor(erase_at_visitor(pos), _variant);
     }
+    void init_at(size_t pos) {
+        boost::apply_visitor(init_at_visitor(pos), _variant);
+    }
     template<typename T> T get_at(size_t pos) const {
         return boost::apply_visitor(get_at_visitor<T>(pos), _variant);
     }
@@ -343,7 +352,7 @@ struct multi_type_seq : public boost::less_than_comparable<multi_type_seq>,
     // I set it as mutable because the FUCKING boost::variant
     // apply_visitor doesn't allow to deal with const variants. For
     // the same reason I cannot define multi_type_seq as an inherited
-    // class from multi_type_variant (boost::variant kinda suck!).
+    // class from multi_type_variant (boost::variant kinda sucks!).
     mutable multi_type_variant _variant;
 };
 
@@ -390,6 +399,8 @@ public:
     typedef std::map<key_type, counter_t> super;
     typedef typename super::value_type value_type;
     typedef std::vector<std::string> string_seq;
+
+    CTable() {}
 
     // Definition is delayed until after Table, as it uses Table.
     template<typename Func>
@@ -450,24 +461,50 @@ public:
         return res;
     }
 
-    template<typename F, typename Seq>
-    Seq filtered_preverse_idxs(const F& filter, const Seq& seq) const
+    template<typename F>
+    multi_type_seq filtered_preverse_idxs(const F& filter,
+                                          const multi_type_seq& seq) const
     {
-        Seq res;
+        multi_type_seq res;
         auto it = filter.cbegin();
         for (unsigned i = 0; i < seq.size(); ++i) {
             if (it != filter.cend() && (typename F::value_type)i == *it) {
-                res.push_back(seq[i]);
+                // XXX TODO WARNING ERROR: builtin hardcoded shit!!!
+                res.push_back(seq.get_at<builtin>(i));
                 ++it;
-            } else
+            } else {
+                // XXX TODO WARNING ERROR: builtin hardcoded shit!!!
                 res.push_back(id::null_vertex);
+            }
         }
-        return seq;
+        return res;
+    }
+
+    /**
+     * Like filtered but preserve the indices on the columns,
+     * technically it replaces all input values filtered out by
+     * id::null_vertex.
+     */
+    template<typename F>
+    CTable filtered_preverse_idxs(const F& filter) const
+    {
+
+        // Set new CTable
+        CTable res(olabel, ilabels, tsig);
+
+        // Filter the rows (replace filtered out values by id::null_vertex)
+        for (const CTable::value_type v : *this)
+            res[filtered_preverse_idxs(filter, v.first)] += v.second;
+
+        // return the filtered CTable
+        return res;
     }
 
     // return the output label + list of input labels
+    void set_labels(const string_seq& labels);
     string_seq get_labels() const;
     const string_seq& get_input_labels() const {return ilabels;}
+    void set_signature(const type_tree& tt) { tsig = tt; };
     const type_tree& get_signature() const {return tsig;}
     type_node get_output_type() const;
 
@@ -499,7 +536,8 @@ public:
     typedef std::vector<std::string> string_seq;
     typedef std::vector<type_node> type_seq;
     ITable();
-    ITable(const super& mat, string_seq il = string_seq());
+    ITable(const type_seq& ts, const string_seq& il = string_seq());
+    ITable(const super& mat, const string_seq& il = string_seq());
     /**
      * generate an input table according to the signature tt.
      *
@@ -586,8 +624,8 @@ public:
     int get_column_offset(const std::string& col_name) const;
 
 protected:
-    mutable string_seq labels; // list of input labels
     mutable type_seq types;    // list of types of the columns
+    mutable string_seq labels; // list of input labels
 
 private:
     string_seq get_default_labels() const;
@@ -676,19 +714,35 @@ struct Table
 
     Table();
 
-    Table(const OTable& otable_, const ITable& itable_, const type_tree& tt_);
+    Table(const OTable& otable_, const ITable& itable_);
 
     template<typename Func>
     Table(const Func& func, arity_t a, int nsamples = -1) :
-        tt(gen_signature(type_node_of<bool>(),
-                         type_node_of<bool>(), a)),
-        itable(tt), otable(func, itable) {}
+        itable(gen_signature(type_node_of<bool>(),
+                             type_node_of<bool>(), a)),
+        otable(func, itable) {}
 
     Table(const combo_tree& tr, int nsamples = -1,
           contin_t min_contin = -1.0, contin_t max_contin = 1.0);
+
     size_t size() const { return itable.size(); }
+
     arity_t get_arity() const { return itable.get_arity(); }
-    const type_tree& get_signature() const { return tt; }
+
+    // Return the types of the columns in the table.
+    // The type is returned as a lambda(input col types) -> output col type.
+    // This is computed on the fly each time, instead ov being
+    // stored with the object, so that RAM isn't wasted holding this 
+    // infrequently-needed info.
+    type_tree get_signature() const
+    {
+        type_tree tt(id::lambda_type);
+        auto root = tt.begin();
+        for (type_node tn : itable.get_types())
+            tt.append_child(root, tn);
+        tt.append_child(root, otable.get_type());
+        return tt;
+    }
 
     // return a string with the io labels, the output label comes first
     string_seq get_labels() const;
@@ -707,17 +761,14 @@ struct Table
         // set output table
         res.otable = otable;
 
-        // set type tree
-        type_tree::iterator head = res.tt.set_head(id::lambda_type);
-        for (type_node tn : res.itable.get_types())
-            res.tt.append_child(head, tn);
-        res.tt.append_child(head, otable.get_type());
-
         // update target_pos
         if (target_pos > 0) {
             auto it = boost::adjacent_find(f, [&](int l, int r) {
                     return l < target_pos && target_pos < r; });
-            res.target_pos = distance(f.begin(), ++it);
+            if (it == f.end())  // it is at the end
+                res.target_pos = f.size();
+            else                // it is in between f
+                res.target_pos = distance(f.begin(), ++it);
         } else
             res.target_pos = target_pos;
 
@@ -735,7 +786,6 @@ struct Table
     void add_features_from_file(const std::string& input_file,
                                 std::vector<std::string> features);
 
-    type_tree tt;
     ITable itable;
     OTable otable;
     int target_pos;             // position of the target, useful for
@@ -967,7 +1017,9 @@ double mutualInformation(const CTable& ctable, const FeatureSet& fs)
     //////////////////////////////////
     else
     {
-        OC_ASSERT(0, "Unsupported type for mutual information");
+        std::stringstream ss;
+        ss << "Type " << otype << " is not supported for mutual information";
+        OC_ASSERT(0, ss.str());
         return 0.0;
     }
 }
@@ -1085,16 +1137,8 @@ void subsampleTable(ITable& it, unsigned nsamples);
 /////////////////
 
 //////////////////////////////
-// probably soon deprecated //
+// probably soon deprecated //  ??? Why deprecated ??? Because its used for demo problems only ???
 //////////////////////////////
-
-// shorthands used by class contin_input_table and contin_output_table
-typedef std::vector<bool> bool_vector;
-typedef bool_vector::iterator bv_it;
-typedef bool_vector::const_iterator bv_cit;
-typedef std::vector<bool_vector> bool_matrix;
-typedef bool_matrix::iterator bm_it;
-typedef bool_matrix::const_iterator bm_cit;
 
 /**
  * complete truth table, it contains only the outputs, the inputs are
@@ -1113,6 +1157,7 @@ typedef bool_matrix::const_iterator bm_cit;
  * |complete_truth_table[3]|T |T |
  * +-----------------------+--+--+
  */
+typedef std::vector<bool> bool_vector;
 class complete_truth_table : public bool_vector
 {
 public:
@@ -1142,7 +1187,7 @@ public:
         for (int i = 0; it != end(); ++i, ++it) {
             bool_vector v(_arity);
             for (arity_t j = 0;j < _arity;++j)
-                v[j] = (i >> j) % 2;
+                v[j] = (i >> j) % 2;  // j'th bit of i
             (*it) = f(v.begin(), v.end());
         }
     }
@@ -1178,8 +1223,8 @@ protected:
         iterator it = begin();
         for (int i = 0; it != end(); ++i, ++it) {
             for (int j = 0; j < _arity; ++j)
-                bmap[j] = bool_to_vertex((i >> j) % 2);
-            *it = eval_binding(bmap, tr) == id::logical_true;
+                bmap[j] = bool_to_vertex((i >> j) % 2);  // j'th bit of i
+            *it = (eval_binding(bmap, tr) == id::logical_true);
         }
     }
     arity_t _arity;

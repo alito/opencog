@@ -59,134 +59,35 @@ void removeNonASCII(std::string& str);
 bool checkCarriageReturn(std::istream& in);
 
 /**
- * Take a row, return a tokenizer.  Tokenization uses the
- * seperator characters comma, blank, tab (',', ' ' or '\t').
+ * Convert strings to typed values
  */
-typedef boost::tokenizer<boost::escaped_list_separator<char>> table_tokenizer;
-table_tokenizer get_row_tokenizer(const std::string& line);
+builtin token_to_boolean(const std::string& token);
+contin_t token_to_contin(const std::string& token);
+vertex token_to_vertex(const type_node &tipe, const std::string& token);
+
+
+// ===========================================================
 
 static const std::vector<unsigned> empty_unsigned_vec =
     std::vector<unsigned>();
 static const std::vector<std::string> empty_string_vec =
     std::vector<std::string>();
 
-builtin token_to_boolean(const std::string& token);
-contin_t token_to_contin(const std::string& token);
-vertex token_to_vertex(const type_node &tipe, const std::string& token);
-struct from_tokens_visitor : public boost::static_visitor<multi_type_seq> {
-    from_tokens_visitor(const std::vector<type_node>& types) : _types(types) {
-        all_boolean = boost::count(types, id::boolean_type) == (int)types.size();
-        all_contin = boost::count(types, id::contin_type) == (int)types.size();
-    }
-    result_type operator()(const string_seq& seq) {
-        result_type res;
-        if (all_boolean) {
-            res = builtin_seq();
-            builtin_seq& bs = res.get_seq<builtin>();
-            boost::transform(seq, back_inserter(bs), token_to_boolean);
-        }
-        else if (all_contin) {
-            res = contin_seq();
-            contin_seq& cs = res.get_seq<contin_t>();
-            boost::transform(seq, back_inserter(cs), token_to_contin);
-        }
-        else {
-            res = vertex_seq();
-            vertex_seq& vs = res.get_seq<vertex>();
-            boost::transform(_types, seq, back_inserter(vs), token_to_vertex);
-        }
-        return res;
-    }
-    template<typename Seq> result_type operator()(const Seq& seq) {
-        OC_ASSERT(false, "You are not supposed to do that");
-        return result_type();
-    }
-    const std::vector<type_node>& _types;
-    bool all_boolean, all_contin;
-};
+
+typedef boost::tokenizer<boost::escaped_list_separator<char>> table_tokenizer;
 
 /**
- * parse a pair of key/value in a parse dataset, using ':' as
- * delimiter. For instance
- * 
- * parse_key_val("key : val")
- *
- * returns
- *
- * {"key", "val"}
- *
- * If no such delimiter is found then it return a pair with empty key
- * and empty val.
+ * Take a row, return a tokenizer.  Tokenization uses the
+ * separator characters comma, blank, tab (',', ' ' or '\t').
  */
-static const char *sparse_delim = " : ";
-std::pair<std::string, std::string> parse_key_val(std::string chunk);
-
-/**
- * The class below tokenizes one row, and jams it into the table
- */
-struct from_sparse_tokens_visitor : public from_tokens_visitor {
-    from_sparse_tokens_visitor(const std::vector<type_node>& types,
-                               const std::map<const std::string, size_t>& index,
-                               size_t fixed_arity)
-        : from_tokens_visitor(types), _index(index), _fixed_arity(fixed_arity) {}
-    result_type operator()(const string_seq& seq) {
-        using std::transform;
-        using std::for_each;
-        result_type res;
-        if (all_boolean) {
-            res = builtin_seq(_types.size(), id::logical_false);
-            builtin_seq& bs = res.get_seq<builtin>();
-            auto begin_sparse = seq.begin() + _fixed_arity;
-            transform(seq.begin(), begin_sparse, bs.begin(), token_to_boolean);
-            for (auto it = begin_sparse; it != seq.end(); ++it) {
-                auto key_val = parse_key_val(*it);
-                if (key_val != std::pair<std::string, std::string>()) {
-                    size_t idx = _index.at(key_val.first);
-                    bs[idx] = token_to_boolean(key_val.second);
-                }
-            }
-        }
-        else if (all_contin) {
-            res = contin_seq(_types.size(), 0.0);
-            contin_seq& cs = res.get_seq<contin_t>();
-            auto begin_sparse = seq.cbegin() + _fixed_arity;
-            transform(seq.begin(), begin_sparse, cs.begin(), token_to_contin);
-            for (auto it = begin_sparse; it != seq.end(); ++it) {
-                auto key_val = parse_key_val(*it);
-                if (key_val != std::pair<std::string, std::string>()) {
-                    size_t idx = _index.at(key_val.first);
-                    cs[idx] = token_to_contin(key_val.second);
-                }
-            }
-        }
-        else {
-            res = vertex_seq(_types.size());
-            vertex_seq& vs = res.get_seq<vertex>();
-            auto begin_sparse_types = _types.cbegin() + _fixed_arity;
-            auto begin_sparse_seq = seq.cbegin() + _fixed_arity;
-            transform(_types.begin(), begin_sparse_types,
-                      seq.begin(), vs.begin(), token_to_vertex);
-            for (auto it = begin_sparse_seq; it != seq.end(); ++it) {
-                auto key_val = parse_key_val(*it);
-                if (key_val != std::pair<std::string, std::string>()) {
-                    size_t idx = _index.at(key_val.first);
-                    vs[idx] = token_to_vertex(_types[idx], key_val.second);
-                }
-            }
-        }
-        return res;
-    }
-    std::map<const std::string, size_t> _index;
-    size_t _fixed_arity;
-};
+table_tokenizer get_row_tokenizer(const std::string& line);
 
 /**
  * Take a line and return a vector containing the elements parsed.
- * Used by istreamTable. This will modify the line to remove leading
- * non-ASCII characters, as well as stripping of any carriage-returns.
+ * Used by istreamTable.
  */
 template<typename T>
-std::vector<T> tokenizeRow(const std::string& line,
+static std::vector<T> tokenizeRow(const std::string& line,
                            const std::vector<unsigned>& ignored_indices =
                            empty_unsigned_vec)
 {
@@ -198,7 +99,9 @@ std::vector<T> tokenizeRow(const std::string& line,
             res.push_back(boost::lexical_cast<T>(t));
     return res;
 }
-        
+
+// ===========================================================
+
 //////////////////
 // istreamTable //
 //////////////////
@@ -218,29 +121,41 @@ std::istream& istreamTable(std::istream& in, Table& tab,
                            const std::string& target_feature,
                            const std::vector<std::string>& ignore_features);
 
+// WARNING: this implementation only supports boolean ctable!!!!
+std::istream& istreamCTable(std::istream& in, CTable& ctable);
+
 /**
  * Load a OTable givent the file name. Only works for dense DSV data.
  */
 OTable loadOTable(const std::string& file_name,
                   const std::string& target_feature);
-        
+
+// TODO: reimplement loadITable with the same model of loadTable and
+// remove loadITable_optimized
 ITable loadITable(const std::string& file_name,
                   const std::vector<std::string>& ignore_features
                   = empty_string_vec);
-
-Table loadTable(const std::string& file_name,
-                const std::string& target_feature,
-                const std::vector<std::string>& ignore_features
-                = empty_string_vec);
 
 ITable loadITable_optimized(const std::string& file_name,
                             const std::vector<std::string>& ignore_features
                             = empty_string_vec);
 
-Table loadTable_optimized(const std::string& file_name,
-                          const std::string& target_feature,
-                          const std::vector<std::string>& ignore_features
-                          = empty_string_vec);
+/**
+ * If target_feature is empty then, in case there is no header, it is
+ * assumed to be the first feature.
+ */
+Table loadTable(const std::string& file_name,
+                const std::string& target_feature = std::string(),
+                const std::vector<std::string>& ignore_features
+                = empty_string_vec);
+
+std::istream& istreamDenseTable(std::istream& in, Table& tab,
+                                const std::string& target_feature,
+                                const std::vector<std::string>& ignore_features,
+                                const type_tree& tt, bool has_header);
+
+// WARNING: this implementation only supports boolean ctable!!!!
+CTable loadCTable(const std::string& file_name);
 
 //////////////////
 // ostreamTable //
@@ -300,6 +215,7 @@ Out& ostreamTable(Out& out, const Table& table)
 void saveTable(const std::string& file_name, const Table& table);
 
 /// output a compressed table in pseudo CSV format
+std::ostream& ostreamCTableRow(std::ostream& out, const CTable::value_type& ctv);
 std::ostream& ostreamCTable(std::ostream& out, const CTable& ct);
 
 /**
@@ -321,6 +237,8 @@ void subsampleTable(ITable& it, unsigned nsamples);
 std::ostream& operator<<(std::ostream& out, const ITable& it);
 
 std::ostream& operator<<(std::ostream& out, const OTable& ot);
+
+std::ostream& operator<<(std::ostream& out, const Table& table);
 
 std::ostream& operator<<(std::ostream& out, const CTable& ct);
 

@@ -30,6 +30,7 @@
 #include <opencog/atomspace/types.h>
 #include <opencog/server/CogServer.h>
 #include <opencog/util/Logger.h>
+#include <opencog/util/foreach.h>
 
 #include "examples/atomtypes/atom_types.h"
 
@@ -78,19 +79,19 @@ void CustomAtomTypesTester::dumpAtoms()
     logger().info("[CustomAtomTypesTester.dumpAtoms]");
     AtomSpace& as = server().getAtomSpace();
     HandleSeq hs;
-    as.getHandleSet(back_inserter(hs), BAR_NODE);
+    as.getHandlesByType(back_inserter(hs), BAR_NODE);
     dumpHandleSeq(hs, "bar node");
     hs.clear();
-    as.getHandleSet(back_inserter(hs), NODE, true);
+    as.getHandlesByType(back_inserter(hs), NODE, true);
     dumpHandleSeq(hs, "node");
     hs.clear();
-    as.getHandleSet(back_inserter(hs), FOOBAR_LINK);
+    as.getHandlesByType(back_inserter(hs), FOOBAR_LINK);
     dumpHandleSeq(hs, "foobar link");
     hs.clear();
-    as.getHandleSet(back_inserter(hs), UNORDERED_LINK, true);
+    as.getHandlesByType(back_inserter(hs), UNORDERED_LINK, true);
     dumpHandleSeq(hs, "unordered link");
     hs.clear();
-    as.getHandleSet(back_inserter(hs), LINK, true);
+    as.getHandlesByType(back_inserter(hs), LINK, true);
     dumpHandleSeq(hs, "link");
     hs.clear();
 }

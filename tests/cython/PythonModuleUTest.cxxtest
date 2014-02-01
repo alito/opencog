@@ -80,7 +80,19 @@ public:
         // set cycle duration to a smaller value so that this test do not take too long.
         config().set("SERVER_CYCLE_DURATION", "10");  // in milliseconds
         TestCogServer& cogserver = static_cast<TestCogServer&>(server(TestCogServer::createInstance)); 
-        cogserver.loadModule("libPythonModule.so");
+
+        config().set("MODULES", "opencog/cython/libPythonModule.so");
+        // Blindly search a bunch of paths hoping to find the python
+        // module in one of them ...
+        const char * paths[] =
+        {
+           "./",
+           "../",
+           "../../",
+           "../../../",
+           NULL
+        };
+        cogserver.loadModules(paths);
     }
 
     ~PythonModuleUTest() {
@@ -126,15 +138,15 @@ public:
         cogserver.runLoopStep();
 
         // create agent
-        Agent* pythonTestAgent = cogserver.createAgent("test_agent_w_run_exception.TestRunExceptionAgent",true);
+        AgentPtr pythonTestAgent = cogserver.createAgent("test_agent_w_run_exception.TestRunExceptionAgent",true);
         TS_ASSERT(pythonTestAgent != NULL);
 
         cogserver.runLoopStep();
 
         // check that the exception was reported
-        TS_ASSERT_DIFFERS( ((PyMindAgent*)pythonTestAgent)->last_result.find("IndexError"),
+        PyMindAgentPtr pta = std::dynamic_pointer_cast<PyMindAgent>(pythonTestAgent);
+        TS_ASSERT_DIFFERS( pta->last_result.find("IndexError"),
                 std::string::npos );
-
 
     }
 
@@ -142,9 +154,8 @@ public:
         TestCogServer& cogserver = static_cast<TestCogServer&>(server(TestCogServer::createInstance)); 
         // agent is actually loaded from python module in test constructor
         // just check it actually can be created though
-        Agent* pythonTestAgent = cogserver.createAgent("preload_test.PreloadTestAgent");
+        AgentPtr pythonTestAgent = cogserver.createAgent("preload_test.PreloadTestAgent");
         TS_ASSERT(pythonTestAgent != NULL);
-        delete pythonTestAgent;
     }
 
     void testProcessAgents() {
@@ -158,7 +169,7 @@ public:
         cogserver.runLoopStep();
 
         // create agent
-        Agent* pythonTestAgent = cogserver.createAgent("test_agent.TestAgent",true);
+        AgentPtr pythonTestAgent = cogserver.createAgent("test_agent.TestAgent",true);
         TS_ASSERT(pythonTestAgent != NULL);
 
         cogserver.runLoopStep();

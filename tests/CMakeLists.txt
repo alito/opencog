@@ -44,14 +44,9 @@ IF (CXXTEST_FOUND)
  		ADD_SUBDIRECTORY (spatial)
 
 		IF (HAVE_VITERBI)
-			ADD_SUBDIRECTORY (viterbi)
+			# Disable until new interfaces widely available. -- linas
+			# ADD_SUBDIRECTORY (viterbi)
 		ENDIF (HAVE_VITERBI)
-
-		# Rest interfaces assume that the cogserver is working;
-		# so run after the cogserver tests.
-		IF (HAVE_WEB)
-			ADD_SUBDIRECTORY (web)
-		ENDIF (HAVE_WEB)
 	ENDIF (HAVE_ATOMSPACE)
 
 	IF (HAVE_CYTHON AND PYTHONINTERP_FOUND)
@@ -63,18 +58,13 @@ IF (CXXTEST_FOUND)
 		ADD_SUBDIRECTORY (dynamics)
 	ENDIF (HAVE_ATTENTION)
 
-#	# currently, does not depend on atomspace...
-#	IF (HAVE_PLN)
-#		ADD_SUBDIRECTORY (reasoning)
-#	ENDIF (HAVE_PLN)
-
 	# currently, does not depend on atomspace...
 	ADD_SUBDIRECTORY (comboreduct)
 
 	# learning requires a working comboreduct.
-	ADD_SUBDIRECTORY (learning)
+        ADD_SUBDIRECTORY (learning)
 
-	# Embodiment requires that learning, reasoning, spatial, etc.
+        # Embodiment requires that learning, spatial, etc.
 	# all works fine. So run this last.
 	IF (HAVE_EMBODIMENT)
 		ADD_SUBDIRECTORY (embodiment)

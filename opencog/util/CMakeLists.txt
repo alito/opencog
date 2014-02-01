@@ -13,6 +13,7 @@ ENDIF (APPLE)
 ADD_LIBRARY(cogutil SHARED
 	ansi
 	algorithm
+	backtrace-symbols
 	based_variant
 	cluster
 	comprehension
@@ -54,9 +55,17 @@ TARGET_LINK_LIBRARIES(cogutil
 	${Boost_THREAD_LIBRARY}
 )
 
+IF (HAVE_BFD)
+	TARGET_LINK_LIBRARIES(cogutil
+		${BFD_LIBRARY}
+		iberty
+	)
+ENDIF (HAVE_BFD)
+
 INSTALL(FILES
 	ansi.h
 	algorithm.h
+	backtrace-symbols.h
 	based_variant.h
 	cluster.h
 	comprehension.h
@@ -64,6 +73,7 @@ INSTALL(FILES
 	Counter.h
 	Cover_Tree.h
 	concurrent_queue.h
+	concurrent_stack.h
 	digraph.h
 	dorepeat.h
 	exceptions.h
@@ -79,6 +89,7 @@ INSTALL(FILES
 	log_prog_name.h
 	Logger.h
 	lru_cache.h
+	macros.h
 	MannWhitneyU.h
 	misc.h
 	mt19937ar.h

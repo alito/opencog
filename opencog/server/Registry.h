@@ -29,13 +29,19 @@
 #include <list>
 
 #include <opencog/server/Factory.h>
-#include <opencog/server/Request.h>
+#include <opencog/server/RequestClassInfo.h>
 #include <opencog/util/Logger.h>
 #include <opencog/util/misc.h>
 #include <opencog/util/exceptions.h>
 
 namespace opencog
 {
+/** \addtogroup grp_server
+ *  @{
+ */
+
+class Request;
+class CogServer;
 
 /**
  * This template implements a simplified Factory registry, following some of the
@@ -74,26 +80,26 @@ public:
     /** Unregisters the factory identified by 'id' */
     virtual bool unregister(const std::string& id)
     {
-        logger().debug("unregistering %s \"%s\"", 
+        logger().debug("Unregistering %s \"%s\"", 
             demangle(typeid(_BaseType).name()).c_str(), id.c_str());
         return factories.erase(id) == 1;
     }
 
     /** Creates a new instance using the factory identified by 'id' */
-    virtual _BaseType* create(const std::string& id)
+    virtual _BaseType* create(CogServer& cs, const std::string& id)
     {
         FactoryMapConstIterator it = factories.find(id);
         if (it == factories.end()) {
             // If it wasn't found, then the user probably made a 
             // simple typo at the command line. 
-            logger().info("unknown %s command: %s", 
+            logger().debug("Unknown %s command: %s", 
                demangle(typeid(_BaseType).name()).c_str(), id.c_str());
             return NULL;
         }
         // invoke the creation function
-        logger().debug("creating %s instance with \"%s\"", 
+        logger().debug("Creating %s instance with \"%s\"", 
              demangle(typeid(_BaseType).name()).c_str(), id.c_str());
-        return it->second->create();
+        return it->second->create(cs);
     }
 
     /** Returns the metadata associated with the factory identified by 'id' */
@@ -113,12 +119,15 @@ public:
         emptyClassInfo.help = "Error: No such command";
         FactoryMapConstIterator it = factories.find(id);
         if (it == factories.end()) {
-            // not found
-            logger().error("unknown %s id: %s",
+            // Not found
+            // Log only as 'info', not 'error' since the most likely
+            // cause is user-error, i.e. mis-typed something at the
+            // terminal. And even 'info' is maybe too strong for that.
+            logger().info("unknown %s id: %s",
                     demangle(typeid(Request).name()).c_str(), id.c_str());
             return emptyClassInfo;
         }
-        // invoke the description function
+        // Invoke the description function
         logger().debug("returning %s classinfo with id \"%s\"",
                 demangle(typeid(Request).name()).c_str(), id.c_str());
         return it->second->info();
@@ -138,6 +147,7 @@ public:
     }
 };
 
+/** @}*/
 } // namespace opencog
 
 #endif // _OPENCOG_REGISTRY_H

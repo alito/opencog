@@ -180,6 +180,9 @@ private:
 
     int blockNum;
 
+    Handle trueConceptNode;
+    Handle falseConceptNode;
+
 public:
 
     /**
@@ -280,6 +283,8 @@ public:
 			unsigned int actionSeqNum = 1) 
 		throw (opencog::RuntimeException, std::bad_exception); 
 
+    HandleSeq getActionSeqFromPlan(ActionPlanID planId);
+
     /**
      * Sends an Feelings XML message to PVP. Note that not all feelings are
      * sent, only the ones that where updated during last actions selection
@@ -368,6 +373,8 @@ public:
      */
     bool isActionDone(ActionID actionId, unsigned long sinceTimestamp) const;
 
+    bool isActionDone(ActionPlanID planId, unsigned int seqNumber) const;
+
     /**
      * Check if the action with the given id failed since the given timestamp.
      *
@@ -381,6 +388,8 @@ public:
      * method.
      */
     bool isActionFailed(ActionID actionId, unsigned long sinceTimestamp) const;
+
+    bool isActionFailed(ActionPlanID planId, unsigned int seqNumber) const;
 
     /**
      * Check if the action with the given id was already tried since the given
@@ -412,6 +421,11 @@ public:
     bool hasPlanFailed(ActionPlanID planId) const;
 
     static std::string getObjectTypeFromHandle(const AtomSpace& atomSpace, Handle objectH);
+
+    bool hasFinishFistTimeWorldPercetption() const
+    {
+        return (! isFirstPerceptTerrian) ;
+    }
 
 private:
 
@@ -913,6 +927,7 @@ private:
      * @return true if the object is an obstacle.
      */
     bool isObjectAnObstacle(Handle objectNode, const std::string& entityClass, const MapInfo& mapinfo) const;
+
 
     #endif
 

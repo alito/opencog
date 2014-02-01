@@ -47,43 +47,39 @@ std::string NullTruthValue::toString() const
     return "(null TV)";
 }
 
-float NullTruthValue::getMean() const throw (RuntimeException)
+strength_t NullTruthValue::getMean() const throw (RuntimeException)
 {
     throw RuntimeException(TRACE_INFO, "Cannot call getMean() method of a NullTruthvalue");
 }
 
-float NullTruthValue::getCount() const throw (RuntimeException)
+count_t NullTruthValue::getCount() const throw (RuntimeException)
 {
     throw RuntimeException(TRACE_INFO, "Cannot call getCount() method of a NullTruthvalue");
 }
 
-float NullTruthValue::getConfidence() const throw (RuntimeException)
+confidence_t NullTruthValue::getConfidence() const throw (RuntimeException)
 {
     throw RuntimeException(TRACE_INFO, "Cannot call getConfidence() method of a NullTruthvalue");
 }
 
-float NullTruthValue::toFloat() const throw (RuntimeException)
+TruthValueType NullTruthValue::getType() const
 {
-    throw RuntimeException(TRACE_INFO, "Cannot call toFloat() method of a NullTruthvalue");
+    return NULL_TRUTH_VALUE;
 }
 
-TruthValueType NullTruthValue::getType() const throw (RuntimeException)
-{
-    throw RuntimeException(TRACE_INFO, "Cannot call getType() method of a NullTruthvalue");
-}
-
-TruthValue* NullTruthValue::merge(TruthValue*) throw (RuntimeException)
+TruthValuePtr NullTruthValue::merge(TruthValuePtr) throw (RuntimeException)
 {
     throw RuntimeException(TRACE_INFO, "Cannot call merge() method of a NullTruthvalue");
 }
 
-TruthValue* NullTruthValue::clone() const throw (RuntimeException)
+TruthValuePtr NullTruthValue::clone() const
 {
-    return new NullTruthValue();
+    static TruthValuePtr nullo(new NullTruthValue());
+    return nullo;
 }
 
-NullTruthValue& NullTruthValue::operator=(const TruthValue & rhs) throw (RuntimeException)
+TruthValue* NullTruthValue::rawclone() const
 {
-    throw RuntimeException(TRACE_INFO, "Cannot call operator= of a NullTruthvalue");
+    return new NullTruthValue();
 }
 

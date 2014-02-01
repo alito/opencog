@@ -89,10 +89,12 @@ struct composite_score:
     composite_score(score_t scor, complexity_t cpxy,
                     score_t complexity_penalty_ = 0.0,
                     score_t diversity_penalty_ = 0.0)
-       : score(scor), complexity(cpxy),
-         complexity_penalty(complexity_penalty_),
-         diversity_penalty(diversity_penalty_),
-         penalized_score(score - complexity_penalty - diversity_penalty) {}
+        : multiply_diversity(false), score(scor), complexity(cpxy),
+          complexity_penalty(complexity_penalty_),
+          diversity_penalty(diversity_penalty_)
+    {
+        update_penalized_score();
+    }
 
     composite_score();    // build the worst score
     composite_score& operator=(const composite_score &r);
@@ -127,8 +129,14 @@ struct composite_score:
     /// anything (including -inf) except nan
     bool operator<(const composite_score &r) const;
 
-    /// useful for testing (probably not in practice)
+    /// used in test cases -- compare equality to 7 decimal places.
     bool operator==(const composite_score& r) const;
+
+    // EXPERIMENTAL: if multiply_diversity is set to true then the
+    // diversity_penalty is multiplied with the raw score instead
+    // being subtracted. This makes more sense if the diversity
+    // penalty represent a probability
+    bool multiply_diversity;
 
 protected:
     score_t score;
@@ -140,7 +148,11 @@ protected:
     /// Update penalized_score, i.e. substract the complexity and
     /// diversity penalty from the raw score.
     void update_penalized_score() {
-        penalized_score = score - complexity_penalty - diversity_penalty;
+        penalized_score = score - complexity_penalty;
+        if (multiply_diversity)
+            penalized_score *= diversity_penalty;
+        else
+            penalized_score -= diversity_penalty;
     }
 };
 
@@ -438,8 +450,7 @@ Out& ostream_combo_tree_composite_pbscore_python(Out& out,
                                                  bool output_penalty = false,
                                                  bool output_bscore = false)
 {
-    out << std::endl
-        << "#!/usr/bin/python" << std::endl
+    out << "#!/usr/bin/env python" << std::endl
         << "from operator import *" << std::endl
         << std::endl
         << "#These functions allow multiple args instead of lists." << std::endl

@@ -24,6 +24,7 @@
 
 #include <opencog/atomspace/AtomSpace.h>
 #include <opencog/atomspace/Link.h>
+#include <opencog/atomspace/IndefiniteTruthValue.h>
 #include <opencog/atomspace/SimpleTruthValue.h>
 #include <opencog/dynamics/attention/atom_types.h>
 #include <opencog/server/CogServer.h>
@@ -31,7 +32,29 @@
 
 using namespace opencog;
 
-HebbianUpdatingAgent::HebbianUpdatingAgent()
+static void setMean(Handle h, float tc)
+{
+	TruthValuePtr oldtv(h->getTruthValue());
+	switch (oldtv->getType())
+	{
+		case SIMPLE_TRUTH_VALUE: {
+			TruthValuePtr newtv(SimpleTruthValue::createTV(tc, oldtv->getCount()));
+			h->setTruthValue(newtv);
+			break;
+		}
+		case INDEFINITE_TRUTH_VALUE: {
+			IndefiniteTruthValuePtr newtv(IndefiniteTruthValue::createITV(oldtv));
+			newtv->setMean(tc);
+			h->setTruthValue(newtv);
+			break;
+		}
+		default:
+			throw InvalidParamException(TRACE_INFO, "Unsupported TV type in Hebbian");
+	}
+}
+
+HebbianUpdatingAgent::HebbianUpdatingAgent(CogServer& cs) :
+    Agent(cs)
 {
     static const std::string defaultConfig[] = {
         "ECAN_CONVERT_LINKS","false",
@@ -64,9 +87,9 @@ Logger* HebbianUpdatingAgent::getLogger()
     return log;
 }
 
-void HebbianUpdatingAgent::run(CogServer *server)
+void HebbianUpdatingAgent::run()
 {
-    a = &server->getAtomSpace();
+    a = &_cogserver.getAtomSpace();
     hebbianUpdatingUpdate();
 }
 
@@ -84,7 +107,7 @@ void HebbianUpdatingAgent::hebbianUpdatingUpdate()
                    "(convert links = %d)", convertLinks);
 
     // get links again to include the new ones
-    a->getHandleSet(link_output, HEBBIAN_LINK, true);
+    a->getHandlesByType(link_output, HEBBIAN_LINK, true);
 
     for (current_l = links.begin(); current_l != links.end(); ++current_l) {
         // for each hebbian link, find targets, work out conjunction and convert
@@ -118,10 +141,10 @@ void HebbianUpdatingAgent::hebbianUpdatingUpdate()
                         // swap inverse hebbian link direction
                         log->fine("HebbianUpdatingAgent: swapping direction of inverse link %s", a->atomAsString(h).c_str());
                         // save STI/LTI
-                        AttentionValue backupAV = a->getAV(h);
+                        AttentionValuePtr backupAV = a->getAV(h);
                         a->removeAtom(h);
                         outgoing = moveSourceToFront(outgoing);
-                        h = a->addLink(INVERSE_HEBBIAN_LINK, outgoing, SimpleTruthValue(-tc, 0));
+                        h = a->addLink(INVERSE_HEBBIAN_LINK, outgoing, SimpleTruthValue::createTV(-tc, 0));
                         // restore STI/LTI
                         a->setAV(h,backupAV);
                     }
@@ -136,14 +159,14 @@ void HebbianUpdatingAgent::hebbianUpdatingUpdate()
                         // change to symmetric hebbian link
                         log->fine("HebbianUpdatingAgent: change old inverse %s to sym link", a->atomAsString(h).c_str());
                         // save STI/LTI
-                        AttentionValue backupAV = a->getAV(h);
+                        AttentionValuePtr backupAV = a->getAV(h);
                         a->removeAtom(h);
-                        h = a->addLink(SYMMETRIC_HEBBIAN_LINK, outgoing, SimpleTruthValue(-tc, 1));
+                        h = a->addLink(SYMMETRIC_HEBBIAN_LINK, outgoing, SimpleTruthValue::createTV(-tc, 1));
                         // restore STI/LTI
                         a->setAV(h,backupAV);
                     } else {
                         // link type is fine, just update TV
-                        a->setMean(h, tc);
+                        setMean(h, tc);
                     }
                 }
             } else {
@@ -153,15 +176,15 @@ void HebbianUpdatingAgent::hebbianUpdatingUpdate()
                     // change to inverse hebbian link
                     log->fine("HebbianUpdatingAgent: change old sym %s to inverse link", a->atomAsString(h).c_str());
                     // save STI/LTI
-                    AttentionValue backupAV = a->getAV(h);
+                    AttentionValuePtr backupAV = a->getAV(h);
                     a->removeAtom(h);
                     outgoing = moveSourceToFront(outgoing);
-                    h = a->addLink(INVERSE_HEBBIAN_LINK, outgoing, SimpleTruthValue(-tc, 0));
+                    h = a->addLink(INVERSE_HEBBIAN_LINK, outgoing, SimpleTruthValue::createTV(-tc, 0));
                     // restore STI/LTI
                     a->setAV(h,backupAV);
                 } else {
                     // link type is fine, just update TV
-                    a->setMean(h, tc);
+                    setMean(h, tc);
                 }
             }
 
@@ -175,7 +198,7 @@ void HebbianUpdatingAgent::hebbianUpdatingUpdate()
             }
             tc = (tcDecayRate * new_tc) + ( (1.0f - tcDecayRate) * old_tc);
             if (tc < 0.0f) tc = 0.0f;
-            a->setMean(h, tc);
+            setMean(h, tc);
         }
 		if (isDifferent)
 			log->fine("HebbianUpdatingAgent: %s old tv %f", a->atomAsString(h).c_str(), old_tc);
